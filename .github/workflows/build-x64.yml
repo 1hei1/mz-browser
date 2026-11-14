@@ -59,7 +59,7 @@ jobs:
             # 构建脚本强制要求签名更新包，没有配置密钥时生成一次性密钥
             $keyPath = Join-Path $env:RUNNER_TEMP "mz-temp.key"
             $pass = "mz-temp-" + [guid]::NewGuid().ToString("N")
-            npx --yes @tauri-apps/cli@2 signer generate --ci -f -w $keyPath -p $pass
+            npx --yes @tauri-apps/cli@2.9.6 signer generate --ci -f -w $keyPath -p $pass
             if ($LASTEXITCODE -ne 0) { throw "signer generate failed" }
             $priv = (Get-Content -Raw $keyPath).Trim()
             $pub = (Get-Content -Raw "$keyPath.pub").Trim()
@@ -84,6 +84,8 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         with:
           projectPath: .
+          # 固定 CLI 版本与 tauri crate (=2.9.5) 匹配，新版 CLI 的 NSIS 模板与仓库自定义 installer.nsi 不兼容
+          tauriScript: npx --yes @tauri-apps/cli@2.9.6
           args: --features production --target x86_64-pc-windows-msvc
 
       - name: Build and publish release
@@ -93,6 +95,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
+          # 固定 CLI 版本与 tauri crate (=2.9.5) 匹配，新版 CLI 的 NSIS 模板与仓库自定义 installer.nsi 不兼容
+          tauriScript: npx --yes @tauri-apps/cli@2.9.6
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
           releaseBody: MZ指纹浏览器 x64（含链式代理）
