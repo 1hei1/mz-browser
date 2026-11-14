@@ -4,7 +4,7 @@ name: build-x64
 # - 推送到 fork-build 分支：编译并把 setup.exe 作为 Artifact 上传（不发 Release）。
 # - 推送 v* 附注标签：编译并发布 Release；配置了自己的更新签名密钥时同时生成 latest.json。
 # 可选 Secrets：TAURI_PRIVATE_KEY、TAURI_KEY_PASSWORD、TAURI_UPDATER_PUBLIC_KEY（pnpm tauri signer generate 生成）。
-# 没配密钥也能打包，只是不生成自动更新文件。
+# 没配密钥时会在 CI 里临时生成一次性密钥（能打包，但这个安装包以后收不到自动更新）。
 on:
   push:
     branches: [fork-build]
@@ -37,24 +37,51 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare signing key
+        shell: pwsh
+        env:
+          SECRET_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          SECRET_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          SECRET_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          if ($env:HAS_UPDATER_KEY -eq 'true') {
+            $priv = $env:SECRET_PRIVATE_KEY.Trim()
+            $pass = "$env:SECRET_KEY_PASSWORD"
+            $pub = $env:SECRET_PUBLIC_KEY.Trim()
+          } else {
+            # 构建脚本强制要求签名更新包，没有配置密钥时生成一次性密钥
+            $keyPath = Join-Path $env:RUNNER_TEMP "mz-temp.key"
+            $pass = "mz-temp-" + [guid]::NewGuid().ToString("N")
+            pnpm tauri signer generate --ci -f -w $keyPath -p $pass
+            if ($LASTEXITCODE -ne 0) { throw "signer generate failed" }
+            $priv = (Get-Content -Raw $keyPath).Trim()
+            $pub = (Get-Content -Raw "$keyPath.pub").Trim()
+            Write-Host "::warning::未配置更新签名密钥，已使用一次性密钥，此安装包收不到自动更新"
+          }
+          Write-Host "::add-mask::$priv"
+          Write-Host "::add-mask::$pass"
+          "TAURI_SIGNING_PRIVATE_KEY=$priv" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$pass" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TAURI_UPDATER_PUBLIC_KEY=$pub" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Prepare config
         env:
-          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
           REPOSITORY: ${{ github.repository }}
         run: |
           node deploy/prepare-tauri-config.mjs embedBootstrapper x86_64-pc-windows-msvc
           node deploy/prepare-version.mjs
-          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.plugins.updater.endpoints=['https://github.com/'+process.env.REPOSITORY+'/releases/latest/download/latest.json'];if(process.env.HAS_UPDATER_KEY!=='true'){c.bundle.createUpdaterArtifacts=false;}fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');console.log('updater endpoint ->',c.plugins.updater.endpoints[0],'artifacts:',c.bundle.createUpdaterArtifacts)"
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.plugins.updater.endpoints=['https://github.com/'+process.env.REPOSITORY+'/releases/latest/download/latest.json'];fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');console.log('updater endpoint ->',c.plugins.updater.endpoints[0])"
 
       - name: Build (artifact only)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: tauri-apps/tauri-action@v1
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           projectPath: .
           args: --features production --target x86_64-pc-windows-msvc
@@ -64,8 +91,6 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           projectPath: .
           tagName: ${{ github.ref_name }}
