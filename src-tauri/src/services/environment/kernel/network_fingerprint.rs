@@ -225,6 +225,7 @@ mod tests {
             proxy_type: "socks5".into(),
             username: None,
             password: None,
+            chain_proxy: None,
         };
         let mut config = config();
         config.language = Some("ip".into());

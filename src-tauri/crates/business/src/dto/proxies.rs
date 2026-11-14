@@ -19,6 +19,8 @@ pub struct ProxyDto {
     pub ssh_passphrase_encrypted: Option<String>,
     pub country: Option<String>,
     pub city: Option<String>,
+    /// 前置代理地址（链式代理），为空表示直连
+    pub chain_proxy: Option<String>,
     pub status: String,
     pub latency: Option<i32>,
     pub last_check_ip: Option<String>,

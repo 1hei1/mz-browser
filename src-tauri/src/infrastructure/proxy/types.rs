@@ -63,9 +63,25 @@ pub struct ProxyConfig {
     /// 密码（支持明文和加密两种格式）
     #[serde(default)]
     pub password: Option<ProxyPassword>,
+    /// 前置代理地址（链式代理），如 `http://127.0.0.1:7890`；为空表示直连目标代理
+    #[serde(default)]
+    pub chain_proxy: Option<String>,
 }
 
 impl ProxyConfig {
+    /// 设置了前置代理时，把 host/port 换成经前置代理中转的本机中继端口（只做一次）
+    pub async fn resolve_chain(mut self) -> Result<Self, String> {
+        if let Some((host, port)) =
+            super::chain::resolve_chain_endpoint(self.chain_proxy.as_deref(), &self.host, self.port)
+                .await?
+        {
+            self.host = host;
+            self.port = port;
+        }
+        self.chain_proxy = None;
+        Ok(self)
+    }
+
     /// 构建代理 URL
     ///
     pub fn to_url(&self) -> Result<String, String> {

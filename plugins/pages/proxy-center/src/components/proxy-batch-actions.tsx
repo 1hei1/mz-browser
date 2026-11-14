@@ -1,11 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { Activity, Trash2, X } from 'lucide-react';
+import { Activity, Link2, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface ProxyBatchActionsProps {
   selectedCount: number;
   onClear?: () => void;
   onTestSelected?: () => void;
+  /** 批量设置链式代理（前置代理） */
+  onSetChain?: () => void;
   onDelete?: () => void;
 }
 
@@ -13,6 +15,7 @@ export function ProxyBatchActions({
   selectedCount,
   onClear,
   onTestSelected,
+  onSetChain,
   onDelete,
 }: ProxyBatchActionsProps) {
   const { t } = useTranslation('proxy');
@@ -38,6 +41,17 @@ export function ProxyBatchActions({
           <Activity className="h-3.5 w-3.5 mr-1.5" />
           {t('batchActions.testSelected', { defaultValue: '测试选中' })}
         </Button>
+        {onSetChain && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onSetChain}
+            className="text-xs font-bold h-8 px-3"
+          >
+            <Link2 className="h-3.5 w-3.5 mr-1.5" />
+            {t('chain.batchAction', { defaultValue: '链式代理' })}
+          </Button>
+        )}
         {onDelete && (
           <Button
             variant="ghost"

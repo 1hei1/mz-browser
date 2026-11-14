@@ -23,6 +23,8 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { TextareaInput } from '@/components/textarea-input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ProxyChainField } from './proxy-chain-field';
+import { isValidChainProxy } from '../utils/chain-proxy';
 import type { ProxyFormData, Proxy } from '../types';
 
 type ProxyType = 'http' | 'https' | 'socks5';
@@ -118,6 +120,7 @@ export function ProxyEditDialog({
         username: proxy.username || '',
         password: '',
         remark: proxy.remark || '',
+        chainProxy: proxy.chainProxy || '',
       });
       // 重置测试状态
       setTestResult(null);
@@ -234,6 +237,7 @@ export function ProxyEditDialog({
           port: parseInt(formData.port, 10),
           username: formData.username || null,
           password: passwordConfig,
+          chain_proxy: formData.chainProxy?.trim() || null,
         },
       });
 
@@ -265,7 +269,8 @@ export function ProxyEditDialog({
     }
   };
 
-  const canTest = formData.host.trim() && formData.port.trim();
+  const canTest =
+    formData.host.trim() && formData.port.trim() && isValidChainProxy(formData.chainProxy || '');
   // 保存按钮在测试或提交中时禁用
   const canSave = canTest && !testing && !submitting;
 
@@ -418,6 +423,17 @@ export function ProxyEditDialog({
                 </div>
               </div>
             </div>
+
+            {/* 链式代理（前置代理） */}
+            <ProxyChainField
+              value={formData.chainProxy || ''}
+              disabled={submitting}
+              onChange={(chainProxy) => {
+                onFormDataChange({ ...formData, chainProxy });
+                setTestResult(null);
+                setTestIpInfo(null);
+              }}
+            />
 
             {/* 代理检测 */}
             <div className="space-y-2">

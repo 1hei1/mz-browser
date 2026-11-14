@@ -202,6 +202,15 @@ pub async fn dispatch_post(
             }
             .await
         }
+        "proxies/batch-set-chain" => {
+            async {
+                let request: BatchSetChainProxyRequest = payload(data)?;
+                let updated =
+                    services::proxies::batch_set_chain_proxy_service(context, &request).await?;
+                Ok(json!({ "updated": updated }))
+            }
+            .await
+        }
         "proxies/batch-import" => {
             async {
                 let request: BatchImportProxiesRequest = payload(data)?;
@@ -988,6 +997,46 @@ mod tests {
         )
         .await;
         assert_eq!(call(&context, "proxies/list", json!({ "page": 1, "page_size": 20 })).await["total"], 2);
+
+        // 链式代理（前置代理）：创建、更新不传时保留、清除、批量设置
+        let chained = call(
+            &context,
+            "proxies/create",
+            json!({ "name": "P3", "host": "203.0.113.9", "port": 1080, "proxy_type": "socks5",
+                    "chain_proxy": " http://127.0.0.1:7890 " }),
+        )
+        .await["uuid"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let detail = call(&context, "proxies/detail", json!({ "uuid": chained })).await;
+        assert_eq!(detail["chain_proxy"], "http://127.0.0.1:7890");
+        call(&context, "proxies/update", json!({ "uuid": chained, "name": "P3b" })).await;
+        let detail = call(&context, "proxies/detail", json!({ "uuid": chained })).await;
+        assert_eq!(detail["chain_proxy"], "http://127.0.0.1:7890");
+        call(&context, "proxies/update", json!({ "uuid": chained, "chain_proxy": "" })).await;
+        assert!(call(&context, "proxies/detail", json!({ "uuid": chained })).await["chain_proxy"].is_null());
+        assert!(
+            dispatch_post(&context, "proxies/create", &json!({ "name": "bad", "host": "h", "port": 1,
+                "proxy_type": "http", "chain_proxy": "ftp://127.0.0.1:21" }))
+            .await
+            .unwrap()
+            .is_err()
+        );
+        let updated = call(
+            &context,
+            "proxies/batch-set-chain",
+            json!({ "uuids": [chained, proxy], "chain_proxy": "socks5://127.0.0.1:7891" }),
+        )
+        .await;
+        assert_eq!(updated["updated"], 2);
+        assert_eq!(
+            call(&context, "proxies/detail", json!({ "uuid": proxy })).await["chain_proxy"],
+            "socks5://127.0.0.1:7891"
+        );
+        call(&context, "proxies/batch-set-chain", json!({ "uuids": [chained] })).await;
+        assert!(call(&context, "proxies/detail", json!({ "uuid": chained })).await["chain_proxy"].is_null());
+        call(&context, "proxies/delete", json!({ "uuid": chained })).await;
 
         let account = call(
             &context,

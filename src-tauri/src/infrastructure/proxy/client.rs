@@ -57,6 +57,7 @@ mod tests {
             port: 8080,
             username: None,
             password: None,
+            chain_proxy: None,
         };
         assert_eq!(config.to_url().unwrap(), "http://proxy.example.com:8080");
 
@@ -66,6 +67,7 @@ mod tests {
             port: 1080,
             username: Some("user".to_string()),
             password: Some(ProxyPassword::plain("pass".to_string())),
+            chain_proxy: None,
         };
         assert_eq!(
             config_with_auth.to_url().unwrap(),

@@ -29,6 +29,8 @@ pub(super) struct EnvironmentProxyLike {
     pub proxy_type: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
+    #[serde(default)]
+    pub chain_proxy: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

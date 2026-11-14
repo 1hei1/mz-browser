@@ -152,7 +152,7 @@ fn authority(host: &str, port: u16) -> String {
     if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") }
 }
 
-async fn connect_upstream(upstream: &Upstream, host: &str, port: u16) -> std::io::Result<TcpStream> {
+pub(super) async fn connect_upstream(upstream: &Upstream, host: &str, port: u16) -> std::io::Result<TcpStream> {
     match upstream {
         Upstream::Direct => TcpStream::connect(authority(host, port)).await,
         Upstream::Http { host: proxy_host, port: proxy_port, auth } => {

@@ -59,5 +59,6 @@ export function buildTauriProxyConfig(proxy?: EnvironmentProxyLike | null): Prox
           encrypted: false,
         }
         : undefined,
+    chain_proxy: proxy.chain_proxy || null,
   };
 }

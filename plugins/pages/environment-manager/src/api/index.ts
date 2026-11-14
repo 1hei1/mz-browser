@@ -69,6 +69,8 @@ export interface ProxyItem {
   password?: string; // 密码
   country?: string;
   city?: string;
+  /** 前置代理地址（链式代理） */
+  chain_proxy?: string | null;
   remark?: string;
   status: string;
   latency?: number;
@@ -86,6 +88,7 @@ export interface TauriProxyConfig {
         encrypted: boolean;
       }
     | undefined;
+  chain_proxy?: string | null;
 }
 
 /** 账号项 */
@@ -475,6 +478,7 @@ export function buildTauriProxyConfig(proxy?: ProxyItem | null): TauriProxyConfi
           encrypted: false,
         }
       : undefined,
+    chain_proxy: proxy.chain_proxy || null,
   };
 }
 

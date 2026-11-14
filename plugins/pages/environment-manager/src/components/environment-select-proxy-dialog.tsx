@@ -377,6 +377,7 @@ export function EnvironmentSelectProxyDialog({ onComplete }: EnvironmentSelectPr
           password: proxy.password
             ? { value: proxy.password, encrypted: false }
             : null,
+          chain_proxy: proxy.chain_proxy || null,
         },
       });
 

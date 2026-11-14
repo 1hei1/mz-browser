@@ -85,6 +85,8 @@ pub struct PortableProxy {
     pub country: Option<String>,
     #[serde(default)]
     pub city: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_proxy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,6 +163,7 @@ pub async fn export_environments_service(
                 password: secret(proxy.password),
                 country: proxy.country,
                 city: proxy.city,
+                chain_proxy: proxy.chain_proxy,
             }),
             accounts: detail
                 .accounts
@@ -493,7 +496,7 @@ async fn resolve_proxy(
             if has_text(proxy.password.as_deref())
                 && !has_text(proxies::get_proxy_service(svc_ctx, uuid).await?.password.as_deref())
             {
-                models::update_proxy(&svc_ctx.db, uuid, None, None, None, None, None, proxy.password.as_deref(), None, None)
+                models::update_proxy(&svc_ctx.db, uuid, None, None, None, None, None, proxy.password.as_deref(), None, None, None)
                     .await
                     .map_err(|e| e.to_string())?;
                 created.filled_proxy_passwords.push(uuid);
@@ -514,6 +517,7 @@ async fn resolve_proxy(
                     city: proxy.city.clone(),
                     ssh_key: None,
                     ssh_passphrase: None,
+                    chain_proxy: proxy.chain_proxy.clone(),
                 },
             )
             .await?;
@@ -627,6 +631,7 @@ mod tests {
                 city: None,
                 ssh_key: None,
                 ssh_passphrase: None,
+                chain_proxy: Some("http://127.0.0.1:7890".into()),
             },
         )
         .await

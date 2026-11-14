@@ -1195,7 +1195,7 @@ pub async fn fetch_proxies_by_uuids(
         r#"
         SELECT id, uuid, name, host, port, proxy_type,
                username, password,
-               country, city, status, latency, last_check_ip
+               country, city, chain_proxy, status, latency, last_check_ip
         FROM proxies
         WHERE uuid IN ({}) AND deleted_at IS NULL
         "#,
