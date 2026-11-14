@@ -3,7 +3,7 @@ name: build-x64
 # Fork 专用：只打 Windows x64 在线安装版（embedBootstrapper）。
 # - 推送到 fork-build 分支：编译并把 setup.exe 作为 Artifact 上传（不发 Release）。
 # - 推送 v* 附注标签：编译并发布 Release；配置了自己的更新签名密钥时同时生成 latest.json。
-# 可选 Secrets：TAURI_PRIVATE_KEY、TAURI_KEY_PASSWORD、TAURI_UPDATER_PUBLIC_KEY（pnpm tauri signer generate 生成）。
+# 可选 Secrets：TAURI_PRIVATE_KEY、TAURI_KEY_PASSWORD、TAURI_UPDATER_PUBLIC_KEY（npx @tauri-apps/cli signer generate 生成）。
 # 没配密钥时会在 CI 里临时生成一次性密钥（能打包，但这个安装包以后收不到自动更新）。
 on:
   push:
@@ -59,7 +59,7 @@ jobs:
             # 构建脚本强制要求签名更新包，没有配置密钥时生成一次性密钥
             $keyPath = Join-Path $env:RUNNER_TEMP "mz-temp.key"
             $pass = "mz-temp-" + [guid]::NewGuid().ToString("N")
-            pnpm tauri signer generate --ci -f -w $keyPath -p $pass
+            npx --yes @tauri-apps/cli@2 signer generate --ci -f -w $keyPath -p $pass
             if ($LASTEXITCODE -ne 0) { throw "signer generate failed" }
             $priv = (Get-Content -Raw $keyPath).Trim()
             $pub = (Get-Content -Raw "$keyPath.pub").Trim()
