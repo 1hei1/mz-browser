@@ -1,0 +1,85 @@
+name: build-x64
+
+# Fork 专用：只打 Windows x64 在线安装版（embedBootstrapper）。
+# - 推送到 fork-build 分支：编译并把 setup.exe 作为 Artifact 上传（不发 Release）。
+# - 推送 v* 附注标签：编译并发布 Release；配置了自己的更新签名密钥时同时生成 latest.json。
+# 可选 Secrets：TAURI_PRIVATE_KEY、TAURI_KEY_PASSWORD、TAURI_UPDATER_PUBLIC_KEY（pnpm tauri signer generate 生成）。
+# 没配密钥也能打包，只是不生成自动更新文件。
+on:
+  push:
+    branches: [fork-build]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2025
+    env:
+      ENV_NAME: production
+      MZ_WEBVIEW_MODE: embedBootstrapper
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_PRIVATE_KEY != '' && secrets.TAURI_UPDATER_PUBLIC_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare config
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node deploy/prepare-tauri-config.mjs embedBootstrapper x86_64-pc-windows-msvc
+          node deploy/prepare-version.mjs
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.plugins.updater.endpoints=['https://github.com/'+process.env.REPOSITORY+'/releases/latest/download/latest.json'];if(process.env.HAS_UPDATER_KEY!=='true'){c.bundle.createUpdaterArtifacts=false;}fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');console.log('updater endpoint ->',c.plugins.updater.endpoints[0],'artifacts:',c.bundle.createUpdaterArtifacts)"
+
+      - name: Build (artifact only)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: tauri-apps/tauri-action@v1
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          args: --features production --target x86_64-pc-windows-msvc
+
+      - name: Build and publish release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
+          releaseBody: MZ指纹浏览器 x64（含链式代理）
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: ${{ env.HAS_UPDATER_KEY == 'true' }}
+          releaseAssetNamePattern: MZ指纹浏览器_[version]_[arch][setup].[ext]
+          args: --features production --target x86_64-pc-windows-msvc
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mz-browser-x64-setup
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
