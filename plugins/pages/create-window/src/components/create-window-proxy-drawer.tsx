@@ -301,6 +301,7 @@ export function CreateWindowProxyDrawer({
           port: proxy.port,
           username: proxy.username || null,
           password: proxy.password ? { value: proxy.password, encrypted: false } : null,
+          chain_proxy: proxy.chain_proxy || null,
         },
       });
 

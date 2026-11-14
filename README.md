@@ -68,6 +68,7 @@ A check page opens when an environment starts, showing the exit IP, WebRTC and o
 
 - Proxy center: add, batch import/export, test and assign proxies.
 - Built-in Mihomo support for using nodes from a local Clash core.
+- Proxy chain: give a proxy a front proxy (e.g. local Clash at `http://127.0.0.1:7890`) so the browser, exit-IP detection and proxy tests reach it through local proxy software when it is unreachable directly. Set per proxy or in bulk.
 - Account management: store accounts and bind them to environments, with batch import/export.
 
 ### Browser extensions

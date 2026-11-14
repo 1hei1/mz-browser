@@ -4,6 +4,7 @@ mod gecko;
 mod gecko_relay;
 pub mod job;
 pub mod launcher;
+pub mod chain_relay;
 mod socks_forward;
 pub mod types;
 

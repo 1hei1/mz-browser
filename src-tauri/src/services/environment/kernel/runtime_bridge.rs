@@ -188,6 +188,8 @@ pub async fn batch_stop_environments(env_uuids: Vec<String>) -> Result<Vec<Batch
 }
 
 pub async fn refresh_proxy(env_uuid: String, proxy: Option<ProxyConfig>) -> Result<()> {
+    // 链式代理：换成经前置代理中转的本机端口
+    let proxy = ProxyConfig::resolve_chain_opt(proxy).await?;
     let proxy = match proxy {
         Some(proxy) => Some(proxy.decrypt_password()?.to_browser_proxy_config()),
         None => None,
@@ -379,6 +381,9 @@ async fn prepare_start_request(
     if !PathBuf::from(&exe_path).exists() {
         return Err("可执行文件不存在".into());
     }
+
+    // 链式代理：之后的出口检测和浏览器都连本机中继端口（已解析过的不会重复处理）
+    let proxy = ProxyConfig::resolve_chain_opt(proxy).await?;
 
     let user_data_dir =
         PathBuf::from(cache_path.trim()).join("browser").join("cache").join(&env_id);
@@ -592,6 +597,7 @@ mod tests {
             proxy_type: kind.into(),
             username: None,
             password: None,
+            chain_proxy: None,
         };
         let replace = config("replace");
         let socks5 = proxy("SOCKS5");

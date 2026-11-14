@@ -5,6 +5,7 @@ import type { Proxy, ProxyFormData, ExportRange } from '../types';
 import { useProxyOperations } from './use-proxy-operations';
 import { useProxySelection } from './use-proxy-selection';
 import { parseImportData, importProxies } from '../utils/import-export';
+import { isValidChainProxy } from '../utils/chain-proxy';
 
 interface UseProxyHandlersProps {
   proxies: Proxy[];
@@ -75,6 +76,7 @@ const defaultFormData: ProxyFormData = {
   password: '',
   country: '',
   remark: '',
+  chainProxy: '',
 };
 
 /**
@@ -127,6 +129,10 @@ export function useProxyHandlers({
       toast.warning('请填写端口');
       return;
     }
+    if (!isValidChainProxy(newProxy.chainProxy || '')) {
+      toast.warning(t('chain.invalid', { defaultValue: '前置代理地址格式不正确' }));
+      return;
+    }
     try {
       // 自动生成名称
       const name = newProxy.name.trim() || `${newProxy.host}:${newProxy.port}`;
@@ -140,7 +146,7 @@ export function useProxyHandlers({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '创建代理失败');
     }
-  }, [newProxy, operations]);
+  }, [newProxy, operations, t]);
 
   // 编辑代理
   const handleEditProxy = useCallback((proxy: Proxy) => {
@@ -154,6 +160,7 @@ export function useProxyHandlers({
       username: proxy.username || '',
       password: proxy.password || '',
       remark: proxy.remark || '',
+      chainProxy: proxy.chainProxy || '',
     });
     setEditDialogOpen(true);
   }, []);
@@ -166,6 +173,10 @@ export function useProxyHandlers({
     }
     if (!editProxy.port.trim()) {
       toast.warning('请填写端口');
+      return;
+    }
+    if (!isValidChainProxy(editProxy.chainProxy || '')) {
+      toast.warning(t('chain.invalid', { defaultValue: '前置代理地址格式不正确' }));
       return;
     }
     try {
@@ -181,7 +192,7 @@ export function useProxyHandlers({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '更新代理失败');
     }
-  }, [editingProxy, editProxy, operations]);
+  }, [editingProxy, editProxy, operations, t]);
 
   // 删除代理
   const handleDeleteProxy = useCallback((proxy: Proxy) => {

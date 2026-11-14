@@ -16,12 +16,13 @@ pub async fn insert_proxy(
     password: Option<&str>,
     country: Option<&str>,
     city: Option<&str>,
+    chain_proxy: Option<&str>,
 ) -> Result<Uuid, Error> {
     let uuid: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO proxies (name, host, port, proxy_type,
-                              username, password, country, city)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                              username, password, country, city, chain_proxy)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING uuid;
         "#,
     )
@@ -33,6 +34,7 @@ pub async fn insert_proxy(
     .bind(password.map(crate::secret::protect))
     .bind(country)
     .bind(city)
+    .bind(chain_proxy)
     .fetch_one(pool)
     .await?;
 
@@ -55,7 +57,7 @@ pub async fn fetch_proxies(
         r#"
         SELECT p.id, p.uuid, p.name, p.host, p.port, p.proxy_type,
                p.username, p.password, p.ssh_key_encrypted, p.ssh_passphrase_encrypted,
-               p.country, p.city, p.status, p.latency, p.last_check_ip, p.last_checked_at,
+               p.country, p.city, p.chain_proxy, p.status, p.latency, p.last_check_ip, p.last_checked_at,
                (SELECT COUNT(*) FROM environments e WHERE e.proxy_uuid = p.uuid AND e.deleted_at IS NULL) AS environments_count,
                p.created_at, p.updated_at, p.deleted_at
         FROM proxies p
@@ -119,7 +121,7 @@ pub async fn fetch_proxy_by_uuid(
         r#"
         SELECT p.id, p.uuid, p.name, p.host, p.port, p.proxy_type,
                p.username, p.password, p.ssh_key_encrypted, p.ssh_passphrase_encrypted,
-               p.country, p.city, p.status, p.latency, p.last_check_ip, p.last_checked_at,
+               p.country, p.city, p.chain_proxy, p.status, p.latency, p.last_check_ip, p.last_checked_at,
                (SELECT COUNT(*) FROM environments e WHERE e.proxy_uuid = p.uuid AND e.deleted_at IS NULL) AS environments_count,
                p.created_at, p.updated_at, p.deleted_at
         FROM proxies p
@@ -145,6 +147,7 @@ pub async fn update_proxy(
     password: Option<&str>,
     country: Option<&str>,
     city: Option<&str>,
+    chain_proxy: Option<&str>,
 ) -> Result<(), Error> {
     sqlx::query(
         r#"
@@ -156,7 +159,10 @@ pub async fn update_proxy(
             username = COALESCE($5, username),
             password = COALESCE($6, password),
             country = COALESCE($7, country),
-            city = COALESCE($8, city)
+            city = COALESCE($8, city),
+            chain_proxy = CASE WHEN $10 IS NULL THEN chain_proxy
+                               WHEN TRIM($10) = '' THEN NULL
+                               ELSE TRIM($10) END
         WHERE uuid = $9 AND deleted_at IS NULL
         "#,
     )
@@ -169,10 +175,37 @@ pub async fn update_proxy(
     .bind(country)
     .bind(city)
     .bind(proxy_uuid)
+    .bind(chain_proxy)
     .execute(pool)
     .await?;
 
     Ok(())
+}
+
+/// 批量设置前置代理（`None` 表示清除）
+pub async fn batch_set_proxy_chain(
+    pool: &Pool<Db>,
+    proxy_uuids: &[Uuid],
+    chain_proxy: Option<&str>,
+) -> Result<u64, Error> {
+    if proxy_uuids.is_empty() {
+        return Ok(0);
+    }
+
+    let statement = format!(
+        r#"
+        UPDATE proxies SET chain_proxy = $1
+        WHERE uuid IN ({}) AND deleted_at IS NULL
+        "#,
+        placeholders(2, proxy_uuids.len())
+    );
+    let mut query = sqlx::query(&statement).bind(chain_proxy);
+    for uuid in proxy_uuids {
+        query = query.bind(uuid);
+    }
+    let result = query.execute(pool).await?;
+
+    Ok(result.rows_affected())
 }
 
 /// 更新代理检测结果

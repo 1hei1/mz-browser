@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { extensionRegistry } from '@slotkitjs/core';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router';
 import { useMihomoRuntimeStore } from '../../../services/store/src';
 import { proxyResources } from './i18n/resources';
@@ -13,6 +14,7 @@ import { ProxyCreateDialog } from './components/proxy-create-dialog';
 import { ProxyEditDialog } from './components/proxy-edit-dialog';
 import { ProxyDeleteDialog } from './components/proxy-delete-dialog';
 import { ProxyBatchDeleteDialog } from './components/proxy-batch-delete-dialog';
+import { ProxyBatchChainDialog } from './components/proxy-batch-chain-dialog';
 import { ProxyImportDrawer } from './components/proxy-import-drawer';
 import { ProxyExportDialog } from './components/proxy-export-dialog';
 import { useProxies } from './hooks/use-proxies';
@@ -117,6 +119,26 @@ const ProxyCenterPage: React.FC = () => {
     filteredProxies: allProxies,
     onRefresh: refresh,
   });
+
+  // 批量设置链式代理
+  const [batchChainDialogOpen, setBatchChainDialogOpen] = useState(false);
+  const handleConfirmBatchChain = useCallback(
+    async (chainProxy: string) => {
+      try {
+        const uuids = Array.from(handlers.selection.selectedIds);
+        const updated = await handlers.operations.batchSetChainProxyOp(uuids, chainProxy);
+        setBatchChainDialogOpen(false);
+        toast.success(
+          chainProxy.trim()
+            ? t('chain.batchSetSuccess', { count: updated, defaultValue: `已为 ${updated} 个代理设置前置代理` })
+            : t('chain.batchClearSuccess', { count: updated, defaultValue: `已清除 ${updated} 个代理的前置代理` })
+        );
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : t('chain.batchFailed', { defaultValue: '设置前置代理失败' }));
+      }
+    },
+    [handlers.selection.selectedIds, handlers.operations, t]
+  );
 
   // 导入抽屉状态
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
@@ -450,6 +472,7 @@ const ProxyCenterPage: React.FC = () => {
           onTestSelected={
             proxyMode === 'remote' ? handleBatchTestWrapper : handleLocalBatchTestWrapper
           }
+          onSetChain={proxyMode === 'remote' ? () => setBatchChainDialogOpen(true) : undefined}
           onDelete={proxyMode === 'remote' ? handlers.handleBatchDelete : undefined}
         />
       )}
@@ -489,6 +512,14 @@ const ProxyCenterPage: React.FC = () => {
         count={handlers.selection.selectedIds.size}
         onOpenChange={handlers.setBatchDeleteDialogOpen}
         onConfirm={handlers.handleConfirmBatchDelete}
+      />
+
+      {/* 批量设置链式代理对话框 */}
+      <ProxyBatchChainDialog
+        open={batchChainDialogOpen}
+        count={handlers.selection.selectedIds.size}
+        onOpenChange={setBatchChainDialogOpen}
+        onConfirm={handleConfirmBatchChain}
       />
 
       {/* 导入代理抽屉 */}

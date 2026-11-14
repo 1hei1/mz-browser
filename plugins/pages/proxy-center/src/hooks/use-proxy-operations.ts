@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { invoke } from '@/lib/tauri';
 import type { Proxy, ProxyFormData } from '../types';
-import { createProxy, updateProxy, deleteProxy, batchDeleteProxies } from '../api';
+import { createProxy, updateProxy, deleteProxy, batchDeleteProxies, batchSetChainProxy } from '../api';
 
 interface UseProxyOperationsReturn {
   submitting: boolean;
@@ -9,6 +9,7 @@ interface UseProxyOperationsReturn {
   updateProxyOp: (uuid: string, data: ProxyFormData) => Promise<void>;
   deleteProxyOp: (uuid: string) => Promise<void>;
   batchDeleteProxiesOp: (uuids: string[]) => Promise<void>;
+  batchSetChainProxyOp: (uuids: string[], chainProxy: string) => Promise<number>;
   testProxy: (proxy: Proxy) => Promise<Proxy | null>;
   batchTestProxies: (proxies: Proxy[]) => Promise<void>;
   testAllProxies: (proxies: Proxy[]) => Promise<void>;
@@ -32,6 +33,7 @@ export function useProxyOperations(onComplete?: () => void): UseProxyOperationsR
         password: data.password || undefined,
         country: data.country || undefined,
         city: data.city || undefined,
+        chain_proxy: data.chainProxy?.trim() || undefined,
       });
       onComplete?.();
     } finally {
@@ -52,6 +54,8 @@ export function useProxyOperations(onComplete?: () => void): UseProxyOperationsR
         password: data.password || undefined,
         country: data.country || undefined,
         city: data.city || undefined,
+        // 空字符串表示清除前置代理
+        chain_proxy: data.chainProxy?.trim() ?? '',
       });
       onComplete?.();
     } finally {
@@ -67,6 +71,12 @@ export function useProxyOperations(onComplete?: () => void): UseProxyOperationsR
   const batchDeleteProxiesOp = async (uuids: string[]): Promise<void> => {
     await batchDeleteProxies(uuids);
     onComplete?.();
+  };
+
+  const batchSetChainProxyOp = async (uuids: string[], chainProxy: string): Promise<number> => {
+    const updated = await batchSetChainProxy(uuids, chainProxy);
+    onComplete?.();
+    return updated;
   };
 
   // 测试单个代理
@@ -87,6 +97,7 @@ export function useProxyOperations(onComplete?: () => void): UseProxyOperationsR
           password: proxy.password
             ? { value: proxy.password, encrypted: false }
             : null,
+          chain_proxy: proxy.chainProxy || null,
         },
       });
 
@@ -137,6 +148,7 @@ export function useProxyOperations(onComplete?: () => void): UseProxyOperationsR
     updateProxyOp,
     deleteProxyOp,
     batchDeleteProxiesOp,
+    batchSetChainProxyOp,
     testProxy,
     batchTestProxies,
     testAllProxies,

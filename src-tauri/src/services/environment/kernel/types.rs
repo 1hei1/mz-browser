@@ -47,9 +47,37 @@ pub struct ProxyConfig {
     pub proxy_type: String,
     pub username: Option<String>,
     pub password: Option<crate::infrastructure::proxy::types::ProxyPassword>,
+    /// 前置代理地址（链式代理），如 `http://127.0.0.1:7890`；为空表示直连目标代理
+    #[serde(default)]
+    pub chain_proxy: Option<String>,
 }
 
 impl ProxyConfig {
+    /// 设置了前置代理时，把 host/port 换成经前置代理中转的本机中继端口。
+    /// 换完会清掉 `chain_proxy`，重复调用不会再套一层。
+    pub async fn resolve_chain(mut self) -> Result<Self, String> {
+        if let Some((host, port)) = crate::infrastructure::proxy::chain::resolve_chain_endpoint(
+            self.chain_proxy.as_deref(),
+            &self.host,
+            self.port,
+        )
+        .await?
+        {
+            self.host = host;
+            self.port = port;
+        }
+        self.chain_proxy = None;
+        Ok(self)
+    }
+
+    /// 对可选代理做 [`Self::resolve_chain`]
+    pub async fn resolve_chain_opt(proxy: Option<Self>) -> Result<Option<Self>, String> {
+        match proxy {
+            Some(proxy) => proxy.resolve_chain().await.map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// 构建 Chromium 代理参数
     pub fn to_proxy_arg(&self) -> String {
         let scheme = match self.proxy_type.to_lowercase().as_str() {
@@ -83,6 +111,7 @@ impl ProxyConfig {
             port: self.port,
             username: self.username.clone(),
             password: self.password.clone(),
+            chain_proxy: self.chain_proxy.clone(),
         }
     }
 

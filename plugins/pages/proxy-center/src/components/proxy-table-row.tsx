@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Network, Zap, MoreVertical, Edit, Trash2, Play, Monitor, Loader2 } from 'lucide-react';
+import { Network, Zap, MoreVertical, Edit, Trash2, Play, Monitor, Loader2, Link2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -121,6 +121,18 @@ export function ProxyTableRow({
         <div className="font-mono text-xs text-foreground">
           {proxy.host}:{proxy.port}
         </div>
+        {proxy.chainProxy && (
+          <div
+            className="flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 mt-0.5"
+            title={t('chain.rowTooltip', {
+              chain: proxy.chainProxy,
+              defaultValue: `经前置代理 ${proxy.chainProxy} 连接`,
+            })}
+          >
+            <Link2 className="h-3 w-3 shrink-0" />
+            <span className="font-mono truncate max-w-[180px]">{proxy.chainProxy}</span>
+          </div>
+        )}
         {proxy.username && (
           <div className="text-xs text-muted-foreground mt-0.5">
             {t('table.auth')}: {proxy.username}

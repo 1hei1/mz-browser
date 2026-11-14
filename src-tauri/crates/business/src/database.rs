@@ -421,6 +421,7 @@ mod tests {
             Some("secret"),
             None,
             None,
+            None,
         )
         .await
         .expect("proxy should be created");

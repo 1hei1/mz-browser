@@ -33,6 +33,9 @@ pub struct CreateProxyRequest {
     pub city: Option<String>,
     pub ssh_key: Option<String>,
     pub ssh_passphrase: Option<String>,
+    /// 前置代理地址（链式代理），如 `http://127.0.0.1:7890`
+    #[serde(default)]
+    pub chain_proxy: Option<String>,
 }
 
 /// 更新代理请求
@@ -47,6 +50,9 @@ pub struct UpdateProxyRequest {
     pub password: Option<String>,
     pub country: Option<String>,
     pub city: Option<String>,
+    /// 前置代理：不传表示不修改，传空字符串表示清除
+    #[serde(default)]
+    pub chain_proxy: Option<String>,
 }
 
 /// 批量导入代理项（客户端已解析好的结构化数据）
@@ -60,6 +66,16 @@ pub struct BatchImportProxyItem {
     pub password: Option<String>,
     pub country: Option<String>,
     pub city: Option<String>,
+    #[serde(default)]
+    pub chain_proxy: Option<String>,
+}
+
+/// 批量设置前置代理请求（chain_proxy 为空或不传表示清除）
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BatchSetChainProxyRequest {
+    pub uuids: Vec<Uuid>,
+    #[serde(default)]
+    pub chain_proxy: Option<String>,
 }
 
 /// 批量导入代理请求

@@ -10,6 +10,7 @@ export const API_ENDPOINTS = {
   UPDATE_PROXY: 'proxies/update',
   DELETE_PROXY: 'proxies/delete',
   BATCH_DELETE_PROXIES: 'proxies/batch-delete',
+  BATCH_SET_CHAIN: 'proxies/batch-set-chain',
 } as const;
 
 /**
@@ -26,6 +27,8 @@ export interface ProxyDto {
   password?: string; // 后端返回的密码
   country?: string;
   city?: string;
+  /** 前置代理地址（链式代理） */
+  chain_proxy?: string | null;
   remark?: string;
   status: string;
   latency?: number;
@@ -48,6 +51,8 @@ export interface Proxy {
   password?: string; // 密码
   country?: string;
   city?: string;
+  /** 前置代理地址（链式代理），未设置时为空 */
+  chainProxy?: string;
   remark?: string;
   status: 'healthy' | 'unreachable' | 'unknown';
   latency?: number;
@@ -68,6 +73,8 @@ export interface ProxyFormData {
   password: string;
   country: string;
   remark: string;
+  /** 前置代理地址（链式代理）；空字符串表示不使用 */
+  chainProxy?: string;
 }
 
 /**
@@ -87,6 +94,7 @@ function transformProxyDto(dto: ProxyDto): Proxy {
     password: dto.password,
     country: dto.country,
     city: dto.city,
+    chainProxy: dto.chain_proxy || undefined,
     remark: dto.remark,
     status: (dto.status as Proxy['status']) || 'unknown',
     latency: dto.latency,
@@ -152,6 +160,7 @@ export interface CreateProxyRequest {
   password?: string;
   country?: string;
   city?: string;
+  chain_proxy?: string;
 }
 
 /**
@@ -178,6 +187,8 @@ export async function updateProxy(data: {
   password?: string;
   country?: string;
   city?: string;
+  /** 不传：不修改；空字符串：清除前置代理 */
+  chain_proxy?: string;
 }): Promise<void> {
   const result = await post(API_ENDPOINTS.UPDATE_PROXY, data);
   if (!isSuccess(result)) {
@@ -203,4 +214,18 @@ export async function batchDeleteProxies(uuids: string[]): Promise<void> {
   if (!isSuccess(result)) {
     throw new Error(result.message || '批量删除代理失败');
   }
+}
+
+/**
+ * 批量设置前置代理（链式代理）；chainProxy 为空表示清除
+ */
+export async function batchSetChainProxy(uuids: string[], chainProxy: string): Promise<number> {
+  const result = await post<{ updated: number }>(API_ENDPOINTS.BATCH_SET_CHAIN, {
+    uuids,
+    chain_proxy: chainProxy.trim() || null,
+  });
+  if (!isSuccess(result)) {
+    throw new Error(result.message || '批量设置前置代理失败');
+  }
+  return result.data?.updated ?? 0;
 }

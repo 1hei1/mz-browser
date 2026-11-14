@@ -31,6 +31,8 @@ export interface ProxyConfig {
   proxy_type: string;
   username?: string;
   password?: ProxyPassword;
+  /** 前置代理地址（链式代理），如 http://127.0.0.1:7890 */
+  chain_proxy?: string | null;
 }
 
 export interface EnvironmentProxyLike {
@@ -39,6 +41,7 @@ export interface EnvironmentProxyLike {
   proxy_type?: string;
   username?: string;
   password?: string;
+  chain_proxy?: string | null;
 }
 
 export interface EnvironmentAccountLike {

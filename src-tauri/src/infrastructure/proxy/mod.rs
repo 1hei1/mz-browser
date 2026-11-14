@@ -2,6 +2,7 @@
 //!
 //! 提供 HTTP/HTTPS/SOCKS5 代理支持和 IP 检测功能
 
+pub mod chain;
 pub mod client;
 pub mod detector;
 pub mod types;
@@ -24,6 +25,7 @@ mod tests {
             port: 1080,
             username: Some("user".to_string()),
             password: Some(ProxyPassword::plain("pass".to_string())),
+            chain_proxy: None,
         };
 
         let url = config.to_url().unwrap();

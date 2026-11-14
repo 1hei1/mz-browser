@@ -46,6 +46,7 @@ pub(super) fn resolve_proxy_config(
             &proxy.proxy_scheme,
             None,
             None,
+            None,
         )
         .map(Some);
     }
@@ -60,6 +61,7 @@ pub(super) fn resolve_proxy_config(
         proxy.proxy_type.as_deref().unwrap_or("http"),
         proxy.username,
         proxy.password.map(ProxyPassword::plain),
+        proxy.chain_proxy,
     )
     .map(Some)
 }
@@ -70,11 +72,19 @@ fn validated_proxy(
     scheme: &str,
     username: Option<String>,
     password: Option<ProxyPassword>,
+    chain_proxy: Option<String>,
 ) -> Result<ProxyConfig, String> {
     let host = host.trim();
     let scheme = scheme.trim().to_ascii_lowercase();
     if host.is_empty() || port == 0 || !matches!(scheme.as_str(), "http" | "https" | "socks5") {
         return Err("代理地址、端口或协议无效，已阻止启动".to_string());
+    }
+    let chain_proxy =
+        crate::infrastructure::proxy::chain::normalize_chain_proxy(chain_proxy.as_deref())
+            .map(str::to_string);
+    if let Some(chain_proxy) = chain_proxy.as_deref() {
+        crate::infrastructure::proxy::chain::validate_chain_proxy(chain_proxy)
+            .map_err(|error| format!("前置代理设置无效（{error}），已阻止启动"))?;
     }
     Ok(ProxyConfig {
         host: host.to_string(),
@@ -82,6 +92,7 @@ fn validated_proxy(
         proxy_type: scheme,
         username,
         password,
+        chain_proxy,
     })
 }
 
@@ -101,6 +112,7 @@ mod tests {
             proxy_type: Some("http".into()),
             username: None,
             password: None,
+            chain_proxy: None,
         }
     }
 
@@ -163,7 +175,27 @@ mod tests {
 
     #[test]
     fn invalid_schemes_are_not_coerced_to_http() {
-        assert!(validated_proxy("proxy.test", 8080, "unknown", None, None).is_err());
+        assert!(validated_proxy("proxy.test", 8080, "unknown", None, None, None).is_err());
+    }
+
+    #[test]
+    fn chain_proxy_is_kept_and_invalid_ones_fail_closed() {
+        let mut proxy = remote(Some("proxy.test"), Some(8080));
+        proxy.chain_proxy = Some(" http://127.0.0.1:7890 ".into());
+        let resolved =
+            resolve_proxy_config("env-1", None, None, Some(proxy.clone())).unwrap().unwrap();
+        assert_eq!(
+            resolved.chain_proxy.as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+
+        proxy.chain_proxy = Some("   ".into());
+        let resolved =
+            resolve_proxy_config("env-1", None, None, Some(proxy.clone())).unwrap().unwrap();
+        assert!(resolved.chain_proxy.is_none());
+
+        proxy.chain_proxy = Some("ftp://127.0.0.1:21".into());
+        assert!(resolve_proxy_config("env-1", None, None, Some(proxy)).is_err());
     }
 
     #[test]

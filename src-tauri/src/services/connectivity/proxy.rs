@@ -20,6 +20,19 @@ impl ProxyService {
             config.port
         );
 
+        // 链式代理：经前置代理连目标代理
+        let config = match config.resolve_chain().await {
+            Ok(config) => config,
+            Err(e) => {
+                let result = ProxyTestResult::failure(format!("前置代理设置无效: {e}"));
+                log::warn!(
+                    "代理测试失败: {}",
+                    result.error.as_deref().unwrap_or("未知错误")
+                );
+                return Ok(result);
+            }
+        };
+
         // 构建代理客户端
         let client = match build_proxy_client(&config, Some(15)) {
             Ok(c) => c,
