@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Eye, EyeOff, Loader2, Globe, KeyRound, User } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, Loader2, KeyRound, User } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -21,37 +21,11 @@ import { TotpSecretField } from '@/components/totp-secret-field';
 import { useTotpSecretError } from '@/lib/use-totp-secret';
 import type { AccountFormData } from '../types';
 import { COMMON_PLATFORMS } from '../constants';
+import { PlatformIcon } from '@/components/platform-icon';
 
 // 根据平台 URL 获取 Font Awesome 图标
 function getPlatformIcon(platform: string): React.ReactNode {
-  const lower = platform.toLowerCase();
-
-  if (lower.includes('facebook.com') || lower.includes('fb.com')) {
-    return <i className="fa-brands fa-facebook text-blue-600"></i>;
-  }
-  if (lower.includes('youtube.com')) {
-    return <i className="fa-brands fa-youtube text-red-600"></i>;
-  }
-  if (lower.includes('instagram.com')) {
-    return <i className="fa-brands fa-instagram text-pink-600"></i>;
-  }
-  if (lower.includes('linkedin.com')) {
-    return <i className="fa-brands fa-linkedin text-blue-700"></i>;
-  }
-  if (lower.includes('twitter.com') || lower.includes('x.com')) {
-    return <i className="fa-brands fa-x-twitter text-sky-500"></i>;
-  }
-  if (lower.includes('tiktok.com')) {
-    return <i className="fa-brands fa-tiktok"></i>;
-  }
-  if (lower.includes('google.com') || lower.includes('gmail.com')) {
-    return <i className="fa-brands fa-google text-blue-500"></i>;
-  }
-  if (lower.includes('amazon.com')) {
-    return <i className="fa-brands fa-amazon text-orange-500"></i>;
-  }
-
-  return <Globe className="h-4 w-4 text-muted-foreground" />;
+  return <PlatformIcon url={platform} />;
 }
 
 interface AccountCreateDialogProps {

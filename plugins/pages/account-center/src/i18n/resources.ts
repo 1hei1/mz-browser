@@ -125,6 +125,8 @@ export const accountResources = {
     },
     toast: {
       copySuccess: '已复制到剪贴板',
+      accountCopied: '账号已复制',
+      passwordCopied: '密码已复制',
       copyFailed: '复制失败',
     },
   },
@@ -256,6 +258,8 @@ export const accountResources = {
     },
     toast: {
       copySuccess: 'Copied to clipboard',
+      accountCopied: 'Account copied',
+      passwordCopied: 'Password copied',
       copyFailed: 'Copy failed',
     },
   },

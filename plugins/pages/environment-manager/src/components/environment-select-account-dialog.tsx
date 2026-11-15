@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Loader2, Check, Plus, Globe, Search, UserCheck, ChevronDown } from 'lucide-react';
+import { Loader2, Check, Plus, Search, UserCheck, ChevronDown } from 'lucide-react';
 import { FormattedDialog, FormattedDialogFooter } from '@/components/formatted-dialog';
 import { Button } from '@/components/ui/button';
 import { TextareaInput } from '@/components/textarea-input';
@@ -14,37 +14,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useEnvironmentDialogStore } from '../stores';
 import { setEnvironmentAccounts, listAccounts, AccountItem } from '../api';
+import { PlatformIcon } from '@/components/platform-icon';
 
 // 根据平台 URL 获取 Font Awesome 图标
 function getPlatformIcon(platform: string): React.ReactNode {
-  const lower = platform.toLowerCase();
-
-  if (lower.includes('facebook.com') || lower.includes('fb.com')) {
-    return <i className="fa-brands fa-facebook text-blue-600"></i>;
-  }
-  if (lower.includes('youtube.com')) {
-    return <i className="fa-brands fa-youtube text-red-600"></i>;
-  }
-  if (lower.includes('instagram.com')) {
-    return <i className="fa-brands fa-instagram text-pink-600"></i>;
-  }
-  if (lower.includes('linkedin.com')) {
-    return <i className="fa-brands fa-linkedin text-blue-700"></i>;
-  }
-  if (lower.includes('twitter.com') || lower.includes('x.com')) {
-    return <i className="fa-brands fa-x-twitter text-sky-500"></i>;
-  }
-  if (lower.includes('tiktok.com')) {
-    return <i className="fa-brands fa-tiktok"></i>;
-  }
-  if (lower.includes('google.com') || lower.includes('gmail.com')) {
-    return <i className="fa-brands fa-google text-blue-500"></i>;
-  }
-  if (lower.includes('amazon.com')) {
-    return <i className="fa-brands fa-amazon text-orange-500"></i>;
-  }
-
-  return <Globe className="h-4 w-4 text-muted-foreground" />;
+  return <PlatformIcon url={platform} />;
 }
 
 interface EnvironmentSelectAccountDialogProps {
