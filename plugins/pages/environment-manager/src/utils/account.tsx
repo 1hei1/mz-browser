@@ -2,7 +2,7 @@
  * 账号相关工具函数
  */
 
-import { Globe } from 'lucide-react';
+import { PlatformIcon } from '@/components/platform-icon';
 
 export interface ParsedAccount {
   platform: string;
@@ -28,35 +28,7 @@ export const PLATFORMS = [
  * 根据平台 URL 获取 Font Awesome 图标
  */
 export function getPlatformIcon(platform: string): React.ReactNode {
-  const lower = platform.toLowerCase();
-
-  if (lower.includes('facebook.com') || lower.includes('fb.com')) {
-    return <i className="fa-brands fa-facebook text-blue-600"></i>;
-  }
-  if (lower.includes('youtube.com')) {
-    return <i className="fa-brands fa-youtube text-red-600"></i>;
-  }
-  if (lower.includes('instagram.com')) {
-    return <i className="fa-brands fa-instagram text-pink-600"></i>;
-  }
-  if (lower.includes('linkedin.com')) {
-    return <i className="fa-brands fa-linkedin text-blue-700"></i>;
-  }
-  if (lower.includes('twitter.com') || lower.includes('x.com')) {
-    return <i className="fa-brands fa-x-twitter text-sky-500"></i>;
-  }
-  if (lower.includes('tiktok.com')) {
-    return <i className="fa-brands fa-tiktok"></i>;
-  }
-  if (lower.includes('google.com') || lower.includes('gmail.com')) {
-    return <i className="fa-brands fa-google text-blue-500"></i>;
-  }
-  if (lower.includes('amazon.com')) {
-    return <i className="fa-brands fa-amazon text-orange-500"></i>;
-  }
-
-  // 默认使用 Globe 图标
-  return <Globe className="h-4 w-4 text-muted-foreground" />;
+  return <PlatformIcon url={platform} />;
 }
 
 /**
