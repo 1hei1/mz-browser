@@ -60,6 +60,12 @@ export function AccountTable({
       width: 128,
     },
     {
+      id: 'totp',
+      header: t('table.headers.totp'),
+      cell: () => null,
+      width: 150,
+    },
+    {
       id: 'status',
       header: t('table.headers.status'),
       cell: () => null,

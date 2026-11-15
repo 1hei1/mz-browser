@@ -643,6 +643,7 @@ fn decrypt_accounts(accounts: Vec<AccountInfo>) -> Result<Vec<AccountConfig>> {
             url: account.platform_url,
             username: account.account,
             password: account.password,
+            totp_secret: account.totp_secret.filter(|secret| !secret.is_empty()),
         });
     }
 

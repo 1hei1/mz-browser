@@ -23,6 +23,7 @@ export interface AccountDto {
   platform_name?: string;
   account: string;
   password?: string;
+  totp_secret?: string;
   status: string;
   remark?: string;
   usage_count?: number;
@@ -42,6 +43,8 @@ export interface Account {
   platformName: string;
   account: string;
   password: string;
+  /** 2FA（TOTP）Base32 密钥，未设置为空字符串 */
+  totpSecret: string;
   status: 'active' | 'inactive' | 'expired';
   remark?: string;
   usageCount: number;
@@ -76,6 +79,8 @@ export interface AccountFormData {
   account: string;
   password: string;
   remark: string;
+  /** 2FA 密钥（Base32 或 otpauth:// 链接） */
+  totpSecret: string;
 }
 
 /**
@@ -101,6 +106,7 @@ function transformAccountDto(dto: AccountDto): Account {
     platformName: dto.platform_name || getPlatformNameFromUrl(dto.platform_url),
     account: dto.account,
     password: dto.password || '',
+    totpSecret: dto.totp_secret || '',
     status: (dto.status as Account['status']) || 'active',
     remark: dto.remark,
     usageCount: dto.usage_count || 0,
@@ -142,6 +148,7 @@ export async function createAccount(data: {
   account: string;
   password?: string;
   remark?: string;
+  totp_secret?: string;
 }): Promise<string> {
   const result = await post<{ uuid: string }>(API_ENDPOINTS.CREATE_ACCOUNT, data);
   if (!isSuccess(result)) {
@@ -161,6 +168,8 @@ export async function updateAccount(data: {
   password?: string;
   remark?: string;
   status?: string;
+  /** 不传不修改，空字符串清除 */
+  totp_secret?: string;
 }): Promise<void> {
   const result = await post(API_ENDPOINTS.UPDATE_ACCOUNT, data);
   if (!isSuccess(result)) {
@@ -198,6 +207,7 @@ export async function batchImportAccounts(
     account: string;
     password?: string;
     remark?: string;
+    totp_secret?: string;
   }[]
 ): Promise<{ success_count: number; failed_count: number }> {
   const result = await post<{ success_count: number; failed_count: number }>(

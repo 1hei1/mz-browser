@@ -31,6 +31,7 @@ export function useAccountOperations(onRefresh?: () => void) {
           account: formData.account,
           password: formData.password || undefined,
           remark: formData.remark || undefined,
+          totp_secret: formData.totpSecret.trim() || undefined,
         });
         toast.success('创建账号成功');
         onRefresh?.();
@@ -56,6 +57,7 @@ export function useAccountOperations(onRefresh?: () => void) {
           account: formData.account,
           password: formData.password || undefined,
           remark: formData.remark || undefined,
+          totp_secret: formData.totpSecret.trim(),
         });
         toast.success('更新账号成功');
         onRefresh?.();
@@ -114,6 +116,7 @@ export function useAccountOperations(onRefresh?: () => void) {
             account: a.account,
             password: a.password || undefined,
             remark: a.remark || undefined,
+            totp_secret: a.totpSecret?.trim() || undefined,
           }))
         );
         toast.success(`成功导入 ${result.success_count} 个账号`);

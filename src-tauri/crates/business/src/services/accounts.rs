@@ -12,6 +12,7 @@ pub async fn create_account_service(
     svc_ctx: &SvcCtx,
     payload: &CreateAccountRequest,
 ) -> Result<Uuid, String> {
+    let totp_secret = crate::totp::normalize_secret(payload.totp_secret.as_deref().unwrap_or(""))?;
     models::insert_platform_account(
         &svc_ctx.db,
         &payload.platform_url,
@@ -19,6 +20,7 @@ pub async fn create_account_service(
         &payload.account,
         payload.password.as_deref(),
         payload.remark.as_deref(),
+        totp_secret.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())
@@ -91,6 +93,7 @@ pub async fn update_account_service(
     svc_ctx: &SvcCtx,
     payload: &UpdateAccountRequest,
 ) -> Result<(), String> {
+    let totp_secret = crate::totp::normalize_update(payload.totp_secret.as_deref())?;
     models::update_platform_account(
         &svc_ctx.db,
         payload.uuid,
@@ -100,6 +103,7 @@ pub async fn update_account_service(
         payload.password.as_deref(),
         payload.remark.as_deref(),
         payload.status.as_deref(),
+        totp_secret.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())
@@ -169,6 +173,15 @@ pub async fn batch_import_accounts_service(
     let mut failed_count = 0;
     let mut errors: Vec<String> = vec![];
     for (index, account) in payload.accounts.iter().enumerate() {
+        let totp_secret =
+            match crate::totp::normalize_secret(account.totp_secret.as_deref().unwrap_or("")) {
+                Ok(value) => value,
+                Err(e) => {
+                    failed_count += 1;
+                    errors.push(format!("第 {} 项: {}", index + 1, e));
+                    continue;
+                }
+            };
         let result = models::insert_platform_account(
             &svc_ctx.db,
             &account.platform_url,
@@ -176,6 +189,7 @@ pub async fn batch_import_accounts_service(
             &account.account,
             account.password.as_deref(),
             account.remark.as_deref(),
+            totp_secret.as_deref(),
         )
         .await;
 

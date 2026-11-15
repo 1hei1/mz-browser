@@ -185,6 +185,8 @@ pub struct AccountInfo {
     pub password: String,
     pub platform_url: String,
     pub platform_name: Option<String>,
+    #[serde(default)]
+    pub totp_secret: Option<String>,
 }
 
 /// 扩展信息（来自后端）

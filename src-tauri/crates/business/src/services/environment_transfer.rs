@@ -99,6 +99,9 @@ pub struct PortableAccount {
     pub password: Option<String>,
     #[serde(default)]
     pub remark: Option<String>,
+    /// 2FA 密钥，和密码一样只在选择包含敏感信息时导出
+    #[serde(default)]
+    pub totp_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -174,6 +177,7 @@ pub async fn export_environments_service(
                     account: account.account,
                     password: secret(account.password),
                     remark: account.remark,
+                    totp_secret: secret(account.totp_secret),
                 })
                 .collect(),
             urls: detail
@@ -561,6 +565,7 @@ async fn resolve_account(
                     account.password.as_deref(),
                     None,
                     None,
+                    None,
                 )
                 .await
                 .map_err(|e| e.to_string())?;
@@ -577,6 +582,7 @@ async fn resolve_account(
                     account: name,
                     password: account.password.clone(),
                     remark: account.remark.clone(),
+                    totp_secret: account.totp_secret.clone(),
                 },
             )
             .await?;
@@ -644,6 +650,7 @@ mod tests {
                 account: "me@example.com".into(),
                 password: Some("account-secret".into()),
                 remark: Some("r".into()),
+                totp_secret: Some("JBSWY3DPEHPK3PXP".into()),
             },
         )
         .await
@@ -702,6 +709,7 @@ mod tests {
         assert!(item.config.window_info.get("kernel_id").is_none());
         assert_eq!(item.proxy.as_ref().unwrap().password.as_deref(), Some("proxy-secret"));
         assert_eq!(item.accounts[0].password.as_deref(), Some("account-secret"));
+        assert_eq!(item.accounts[0].totp_secret.as_deref(), Some("JBSWY3DPEHPK3PXP"));
         assert_eq!(item.cookies.len(), 1);
 
         // 换台电脑：本机没有这个环境
@@ -751,9 +759,10 @@ mod tests {
         assert!(!bundle.includes_secrets);
         assert!(item.proxy.as_ref().unwrap().password.is_none());
         assert!(item.accounts[0].password.is_none());
+        assert!(item.accounts[0].totp_secret.is_none());
         assert!(item.cookies.is_empty());
         let text = serde_json::to_string(&bundle).unwrap();
-        for secret in ["proxy-secret", "account-secret", "cookie-secret"] {
+        for secret in ["proxy-secret", "account-secret", "cookie-secret", "JBSWY3DPEHPK3PXP"] {
             assert!(!text.contains(secret), "{secret}");
         }
     }

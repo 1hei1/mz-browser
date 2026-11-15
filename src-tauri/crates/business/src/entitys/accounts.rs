@@ -27,6 +27,9 @@ pub struct CreateAccountRequest {
     pub account: String,
     pub password: Option<String>,
     pub remark: Option<String>,
+    /// 2FA 密钥（Base32 或 otpauth:// 链接）
+    #[serde(default)]
+    pub totp_secret: Option<String>,
 }
 
 /// 更新账号请求
@@ -39,6 +42,9 @@ pub struct UpdateAccountRequest {
     pub password: Option<String>,
     pub remark: Option<String>,
     pub status: Option<String>,
+    /// 2FA 密钥：不传表示不修改，传空字符串表示清除
+    #[serde(default)]
+    pub totp_secret: Option<String>,
 }
 
 /// 批量导入账号项（客户端已解析好的结构化数据）
@@ -49,6 +55,9 @@ pub struct BatchImportAccountItem {
     pub account: String,
     pub password: Option<String>,
     pub remark: Option<String>,
+    /// 2FA 密钥（Base32 或 otpauth:// 链接）
+    #[serde(default)]
+    pub totp_secret: Option<String>,
 }
 
 /// 批量导入账号请求

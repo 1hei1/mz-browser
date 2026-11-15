@@ -7,4 +7,5 @@ pub mod models;
 pub mod secret;
 pub mod services;
 pub mod svc_ctx;
+pub mod totp;
 pub mod utils;

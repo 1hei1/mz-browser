@@ -31,6 +31,7 @@ import {
   DataTableCheckboxCell,
   DataTableActionsCell,
 } from '@/components/data-table';
+import { TotpCode } from '@/components/totp-code';
 import type { Account } from '../types';
 import { decryptAccountPassword } from '../utils/password';
 
@@ -270,6 +271,11 @@ export function AccountTableRow({
             <Copy className="h-3 w-3 text-muted-foreground" />
           </button>
         </div>
+      </DataTableCell>
+
+      {/* 2FA 验证码列 */}
+      <DataTableCell>
+        <TotpCode secret={account.totpSecret} />
       </DataTableCell>
 
       {/* 状态列 */}

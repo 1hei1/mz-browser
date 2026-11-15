@@ -13,6 +13,9 @@ pub struct PlatformAccountDto {
     pub account: String,
     #[sqlx(try_from = "crate::secret::StoredSecret")]
     pub password: Option<String>,
+    /// 2FA（TOTP）Base32 密钥，读出来是明文
+    #[sqlx(try_from = "crate::secret::StoredSecret")]
+    pub totp_secret: Option<String>,
     pub status: String,
     pub remark: Option<String>,
     pub usage_count: Option<i32>,

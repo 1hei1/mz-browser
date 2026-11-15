@@ -16,6 +16,7 @@ const emptyFormData: AccountFormData = {
   account: '',
   password: '',
   remark: '',
+  totpSecret: '',
 };
 
 export function useAccountHandlers({ paginatedAccounts, onRefresh }: UseAccountHandlersProps) {
@@ -65,6 +66,7 @@ export function useAccountHandlers({ paginatedAccounts, onRefresh }: UseAccountH
       account: account.account,
       password: '',
       remark: account.remark || '',
+      totpSecret: account.totpSecret || '',
     });
     setEditDialogOpen(true);
 
@@ -76,6 +78,7 @@ export function useAccountHandlers({ paginatedAccounts, onRefresh }: UseAccountH
           account: account.account,
           password: plainPassword,
           remark: account.remark || '',
+          totpSecret: account.totpSecret || '',
         });
       } catch {
         // 行内查看/复制处会提示，这里保持表单可编辑即可

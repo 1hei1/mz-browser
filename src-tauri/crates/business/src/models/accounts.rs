@@ -13,12 +13,13 @@ pub async fn insert_platform_account(
     account: &str,
     password: Option<&str>,
     remark: Option<&str>,
+    totp_secret: Option<&str>,
 ) -> Result<Uuid, Error> {
     let uuid: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO platform_accounts (platform_url, platform_name,
-                                        account, password, remark)
-        VALUES ($1, $2, $3, $4, $5)
+                                        account, password, remark, totp_secret)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING uuid;
         "#,
     )
@@ -27,6 +28,7 @@ pub async fn insert_platform_account(
     .bind(account)
     .bind(password.map(crate::secret::protect))
     .bind(remark)
+    .bind(totp_secret.map(crate::secret::protect))
     .fetch_one(pool)
     .await?;
 
@@ -47,7 +49,7 @@ pub async fn fetch_platform_accounts(
     let recs = sqlx::query_as::<_, PlatformAccountDto>(
         r#"
         SELECT pa.id, pa.uuid, pa.platform_url, pa.platform_name,
-               pa.account, pa.password, pa.status, pa.remark, pa.usage_count,
+               pa.account, pa.password, pa.totp_secret, pa.status, pa.remark, pa.usage_count,
                (SELECT COUNT(*) FROM environment_accounts ea WHERE ea.account_uuid = pa.uuid) AS environments_count,
                pa.last_used_at, pa.created_at, pa.updated_at, pa.deleted_at
         FROM platform_accounts pa
@@ -117,7 +119,7 @@ pub async fn fetch_platform_account_by_uuid(
     let rec = sqlx::query_as::<_, PlatformAccountDto>(
         r#"
         SELECT pa.id, pa.uuid, pa.platform_url, pa.platform_name,
-               pa.account, pa.password, pa.status, pa.remark, pa.usage_count,
+               pa.account, pa.password, pa.totp_secret, pa.status, pa.remark, pa.usage_count,
                (SELECT COUNT(*) FROM environment_accounts ea WHERE ea.account_uuid = pa.uuid) AS environments_count,
                pa.last_used_at, pa.created_at, pa.updated_at, pa.deleted_at
         FROM platform_accounts pa
@@ -141,6 +143,7 @@ pub async fn update_platform_account(
     password: Option<&str>,
     remark: Option<&str>,
     status: Option<&str>,
+    totp_secret: Option<&str>,
 ) -> Result<(), Error> {
     sqlx::query(
         r#"
@@ -150,7 +153,8 @@ pub async fn update_platform_account(
             account = COALESCE($3, account),
             password = COALESCE($4, password),
             remark = COALESCE($5, remark),
-            status = COALESCE($6, status)
+            status = COALESCE($6, status),
+            totp_secret = COALESCE($8, totp_secret)
         WHERE uuid = $7 AND deleted_at IS NULL
         "#,
     )
@@ -161,6 +165,7 @@ pub async fn update_platform_account(
     .bind(remark)
     .bind(status)
     .bind(account_uuid)
+    .bind(totp_secret.map(crate::secret::protect))
     .execute(pool)
     .await?;
 
@@ -290,7 +295,7 @@ pub async fn fetch_environment_accounts(
     let recs = sqlx::query_as::<_, PlatformAccountDto>(
         r#"
         SELECT pa.id, pa.uuid, pa.platform_url, pa.platform_name,
-               pa.account, pa.password, pa.status, pa.remark, pa.usage_count,
+               pa.account, pa.password, pa.totp_secret, pa.status, pa.remark, pa.usage_count,
                (SELECT COUNT(*) FROM environment_accounts ea2 WHERE ea2.account_uuid = pa.uuid) AS environments_count,
                pa.last_used_at, pa.created_at, pa.updated_at, pa.deleted_at
         FROM platform_accounts pa

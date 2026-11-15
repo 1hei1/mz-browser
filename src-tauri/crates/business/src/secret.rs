@@ -144,8 +144,12 @@ impl From<StoredText> for String {
 }
 
 /// (表, 列)。表名和列名都是这里写死的常量，不来自外部输入。
-const ENCRYPTED_COLUMNS: [(&str, &str); 3] =
-    [("proxies", "password"), ("platform_accounts", "password"), ("environment_cookies", "value")];
+const ENCRYPTED_COLUMNS: [(&str, &str); 4] = [
+    ("proxies", "password"),
+    ("platform_accounts", "password"),
+    ("platform_accounts", "totp_secret"),
+    ("environment_cookies", "value"),
+];
 
 /// 把旧版本留下的明文加密。可以重复执行，已加密的行不会再处理。
 pub async fn encrypt_existing(pool: &Pool<Db>) -> Result<u64, Error> {

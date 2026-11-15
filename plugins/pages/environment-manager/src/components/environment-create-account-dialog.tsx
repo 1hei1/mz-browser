@@ -20,12 +20,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useEnvironmentDialogStore } from '../stores';
 import { createAccount } from '../api';
+import { TotpSecretField } from '@/components/totp-secret-field';
+import { useTotpSecretError } from '@/lib/use-totp-secret';
 import { PLATFORMS, getPlatformIcon } from '../utils/account';
 
 interface AccountFormData {
   platform: string;
   account: string;
   password: string;
+  totpSecret: string;
 }
 
 interface EnvironmentCreateAccountDialogProps {
@@ -46,14 +49,18 @@ export function EnvironmentCreateAccountDialog({
     platform: '',
     account: '',
     password: '',
+    totpSecret: '',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [platformError, setPlatformError] = useState('');
+  const [totpError, setTotpError] = useState('');
+  const totpSecretError = useTotpSecretError();
   const [submitting, setSubmitting] = useState(false);
 
   // 重置表单
   const resetForm = () => {
-    setFormData({ platform: '', account: '', password: '' });
+    setFormData({ platform: '', account: '', password: '', totpSecret: '' });
+    setTotpError('');
     setShowPassword(false);
     setPlatformError('');
   };
@@ -96,6 +103,11 @@ export function EnvironmentCreateAccountDialog({
       toast.warning(t('dialog.account.accountRequired'));
       return;
     }
+    const totpMessage = totpSecretError(formData.totpSecret);
+    if (totpMessage) {
+      setTotpError(totpMessage);
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -103,6 +115,7 @@ export function EnvironmentCreateAccountDialog({
         platform_url: formData.platform,
         account: formData.account,
         password: formData.password || undefined,
+        totp_secret: formData.totpSecret.trim() || undefined,
       });
       toast.success(t('dialog.account.createSuccess'));
       dialogStore.closeCreateAccountDialog();
@@ -230,6 +243,17 @@ export function EnvironmentCreateAccountDialog({
               </button>
             </div>
           </div>
+
+          {/* 2FA 密钥 */}
+          <TotpSecretField
+            id="env-totpSecret"
+            value={formData.totpSecret}
+            error={totpError}
+            onChange={(value) => {
+              setFormData({ ...formData, totpSecret: value });
+              setTotpError('');
+            }}
+          />
         </div>
 
         <DialogFooter className="px-5 py-3 bg-muted/30 border-t border-border/50 gap-2">

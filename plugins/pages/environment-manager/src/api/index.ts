@@ -815,6 +815,7 @@ export async function createAccount(request: {
   account: string;
   password?: string;
   remark?: string;
+  totp_secret?: string;
 }): Promise<string> {
   const result = await post<{ uuid: string }>(API_ENDPOINTS.CREATE_ACCOUNT, request);
   if (!isSuccess(result)) {

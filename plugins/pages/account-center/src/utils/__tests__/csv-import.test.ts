@@ -45,11 +45,13 @@ describe('account CSV round trip', () => {
   it('reads back what the app exports, including accounts without a password', () => {
     const csv = convertToCSV([
       { platform: 'https://www.google.com/', account: 'a@x.com', password: 'pw,1', remark: 'note "q"' },
-      { platform: 'https://x.com/', account: 'b', password: '', remark: 'multi\nline' },
+      { platform: 'https://x.com/', account: 'b', password: '', remark: 'multi\nline', totpSecret: 'JBSWY3DPEHPK3PXP' },
     ] as never);
     const parsed = parseAccounts(csv);
     expect(parsed).toHaveLength(2);
     expect(parsed[0]).toMatchObject({ platform: 'https://www.google.com/', password: 'pw,1', remark: 'note "q"', valid: true });
-    expect(parsed[1]).toMatchObject({ account: 'b', password: '', remark: 'multi\nline', valid: true });
+    expect(parsed[1]).toMatchObject({ account: 'b', password: '', remark: 'multi\nline', totpSecret: 'JBSWY3DPEHPK3PXP', valid: true });
+    expect(parsed[0]).toMatchObject({ totpSecret: '' });
+    expect(parseAccounts('https://x.com/,b,,,notbase32!')[0]).toMatchObject({ valid: false });
   });
 });

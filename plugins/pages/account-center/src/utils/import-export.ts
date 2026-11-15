@@ -4,6 +4,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { toast } from 'sonner';
 import type { Account, ExportRange } from '../types';
 import { createAccount } from '../api';
+import { normalizeTotpSecret } from '@/lib/totp';
 
 /**
  * 导入账号数据项
@@ -13,6 +14,8 @@ export interface ImportAccountItem {
   account: string;
   password: string;
   remark: string;
+  /** 2FA 密钥（已整理成 Base32），没有为空字符串 */
+  totpSecret: string;
   valid: boolean;
   error?: string;
 }
@@ -26,6 +29,17 @@ function getPlatformNameFromUrl(url: string): string {
     return urlObj.hostname.replace('www.', '');
   } catch {
     return url;
+  }
+}
+
+/** 校验并整理 2FA 密钥，非法时把条目标记为无效 */
+function applyTotpSecret(item: ImportAccountItem, raw: string): void {
+  const result = normalizeTotpSecret(raw);
+  if (result.ok) {
+    item.totpSecret = result.secret;
+  } else if (item.valid) {
+    item.valid = false;
+    item.error = '2FA 密钥格式无效';
   }
 }
 
@@ -46,14 +60,15 @@ export function parseCSVContent(content: string): ImportAccountItem[] {
   const dataRows = hasHeader ? rows.slice(1) : rows;
 
   return dataRows.map((values) => {
-    // 导出格式：platform, account, password, remark
-    const [platform = '', account = '', password = '', remark = ''] = values;
+    // 导出格式：platform, account, password, remark, totp_secret（第 5 列可选）
+    const [platform = '', account = '', password = '', remark = '', totpSecret = ''] = values;
 
     const item: ImportAccountItem = {
       platform,
       account,
       password,
       remark,
+      totpSecret: '',
       valid: true,
     };
 
@@ -73,6 +88,7 @@ export function parseCSVContent(content: string): ImportAccountItem[] {
         item.error = '平台地址格式无效';
       }
     }
+    applyTotpSecret(item, totpSecret);
 
     return item;
   });
@@ -91,12 +107,14 @@ export function parseJSONContent(content: string): ImportAccountItem[] {
       const account = String(item.account || '');
       const password = String(item.password || '');
       const remark = String(item.remark || '');
+      const totpSecret = String(item.totp_secret || item.totpSecret || '');
 
       const result: ImportAccountItem = {
         platform,
         account,
         password,
         remark,
+        totpSecret: '',
         valid: true,
       };
 
@@ -115,6 +133,7 @@ export function parseJSONContent(content: string): ImportAccountItem[] {
           result.error = '平台地址格式无效';
         }
       }
+      applyTotpSecret(result, totpSecret);
 
       return result;
     });
@@ -176,6 +195,7 @@ export async function importAccountItems(items: ImportAccountItem[]): Promise<nu
         account: item.account,
         password: item.password || undefined,
         remark: item.remark || undefined,
+        totp_secret: item.totpSecret || undefined,
       });
       successCount++;
     } catch {
@@ -204,8 +224,8 @@ function escapeCSV(value: unknown): string {
  * 将账号数据转换为 CSV 格式
  */
 export function convertToCSV(accounts: Account[]): string {
-  // 核心字段：平台、账号、密码、备注
-  const headers = ['platform', 'account', 'password', 'remark'];
+  // 核心字段：平台、账号、密码、备注、2FA 密钥
+  const headers = ['platform', 'account', 'password', 'remark', 'totp_secret'];
 
   const rows = accounts.map((account) => {
     return [
@@ -213,6 +233,7 @@ export function convertToCSV(accounts: Account[]): string {
       escapeCSV(account.account),
       escapeCSV(account.password),
       escapeCSV(account.remark || ''),
+      escapeCSV(account.totpSecret || ''),
     ].join(',');
   });
 

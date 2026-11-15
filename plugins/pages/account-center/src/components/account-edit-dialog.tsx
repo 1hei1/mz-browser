@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { TextareaInput } from '@/components/textarea-input';
+import { TotpSecretField } from '@/components/totp-secret-field';
+import { useTotpSecretError } from '@/lib/use-totp-secret';
 import { FormattedDialog, FormattedDialogFooter } from '@/components/formatted-dialog';
 import type { Account, AccountFormData } from '../types';
 import { COMMON_PLATFORMS } from '../constants';
@@ -36,6 +38,7 @@ export function AccountEditDialog({
   const { t } = useTranslation('account');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
+  const totpSecretError = useTotpSecretError();
 
   if (!account) return null;
 
@@ -58,6 +61,11 @@ export function AccountEditDialog({
 
     if (!formData.password.trim()) {
       newErrors.password = t('dialog.create.errors.passwordRequired');
+    }
+
+    const totpError = totpSecretError(formData.totpSecret);
+    if (totpError) {
+      newErrors.totpSecret = totpError;
     }
 
     setErrors(newErrors);
@@ -197,6 +205,19 @@ export function AccountEditDialog({
           </div>
           {errors.password && <p className="text-[10px] text-destructive">{errors.password}</p>}
         </div>
+
+        {/* 2FA 密钥（清空即删除） */}
+        <TotpSecretField
+          id="edit-totpSecret"
+          value={formData.totpSecret}
+          error={errors.totpSecret}
+          labelClassName="text-xs"
+          inputClassName="text-xs"
+          onChange={(value) => {
+            onFormDataChange({ ...formData, totpSecret: value });
+            setErrors((prev) => ({ ...prev, totpSecret: '' }));
+          }}
+        />
 
         {/* 备注 */}
         <div className="space-y-1.5">

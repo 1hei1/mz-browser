@@ -139,6 +139,9 @@ pub struct AccountConfig {
     pub url: String,
     pub username: String,
     pub password: String,
+    /// 2FA（TOTP）Base32 密钥。没设置时不发送，旧内核会忽略这个字段
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub totp_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

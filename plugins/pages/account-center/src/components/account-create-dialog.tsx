@@ -17,6 +17,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { TextareaInput } from '@/components/textarea-input';
+import { TotpSecretField } from '@/components/totp-secret-field';
+import { useTotpSecretError } from '@/lib/use-totp-secret';
 import type { AccountFormData } from '../types';
 import { COMMON_PLATFORMS } from '../constants';
 
@@ -72,6 +74,7 @@ export function AccountCreateDialog({
   const { t } = useTranslation('account');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
+  const totpSecretError = useTotpSecretError();
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -95,6 +98,11 @@ export function AccountCreateDialog({
 
     if (!formData.password.trim()) {
       newErrors.password = t('dialog.create.errors.passwordRequired');
+    }
+
+    const totpError = totpSecretError(formData.totpSecret);
+    if (totpError) {
+      newErrors.totpSecret = totpError;
     }
 
     setErrors(newErrors);
@@ -252,6 +260,17 @@ export function AccountCreateDialog({
               <p className="text-[10px] text-destructive mt-0.5">{errors.password}</p>
             )}
           </div>
+
+          {/* 2FA 密钥字段 */}
+          <TotpSecretField
+            id="totpSecret"
+            value={formData.totpSecret}
+            error={errors.totpSecret}
+            onChange={(value) => {
+              onFormDataChange({ ...formData, totpSecret: value });
+              setErrors((prev) => ({ ...prev, totpSecret: '' }));
+            }}
+          />
 
           {/* 备注字段 */}
           <div className="space-y-1">
