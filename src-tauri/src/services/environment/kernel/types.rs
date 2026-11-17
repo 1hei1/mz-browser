@@ -50,6 +50,10 @@ pub struct ProxyConfig {
     /// 前置代理地址（链式代理），如 `http://127.0.0.1:7890`；为空表示直连目标代理
     #[serde(default)]
     pub chain_proxy: Option<String>,
+    /// 已经换成了链式代理的本机中继端口（[`Self::resolve_chain`] 设置）。
+    /// 中继只转 TCP，此时 WebRTC 的 UDP 不能再走代理的 UDP 转发（会绕过前置代理直连目标代理）
+    #[serde(default)]
+    pub relayed_via_chain: bool,
 }
 
 impl ProxyConfig {
@@ -65,6 +69,7 @@ impl ProxyConfig {
         {
             self.host = host;
             self.port = port;
+            self.relayed_via_chain = true;
         }
         self.chain_proxy = None;
         Ok(self)
