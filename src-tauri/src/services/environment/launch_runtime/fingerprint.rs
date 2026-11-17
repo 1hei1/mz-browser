@@ -43,7 +43,11 @@ pub(super) fn build_fingerprint_config(config: Option<&Value>) -> FingerprintCon
         webgl_renderer: get_string(&fingerprint_settings, "webglRenderer").map(|renderer| with_device_id(&renderer)),
         webgpu: get_string(&fingerprint_settings, "webgpu"),
         font_fingerprint: get_string(&fingerprint_settings, "fontFingerprint"),
-        font_list: get_value(&fingerprint_settings, "fontList"),
+        font_list: with_locale_fonts(
+            get_value(&fingerprint_settings, "fontList"),
+            get_string(&basic_settings, "language").as_deref(),
+            window_info.get("system").and_then(Value::as_str),
+        ),
         audio_context: get_string(&fingerprint_settings, "audioContext"),
         speech_voices: get_string(&fingerprint_settings, "speechVoices"),
         client_rects: get_string(&fingerprint_settings, "clientRects"),
@@ -66,6 +70,90 @@ pub(super) fn build_fingerprint_config(config: Option<&Value>) -> FingerprintCon
         env_id: None,
         env_name: None,
     }
+}
+
+/// 各语言版 Windows 默认自带、且网页常拿来判断系统语言的字体。
+/// 内核只暴露白名单里的系统字体；日文环境却查不到 Yu Gothic UI / Meiryo，
+/// 而 system-ui（内核按环境语言换成 Yu Gothic UI）又在用它，等于自相矛盾。
+/// 中文字体是否暴露仍由 includeChinese 决定，这里不动。
+fn locale_windows_fonts(language: &str) -> &'static [&'static str] {
+    let language = language.to_ascii_lowercase();
+    if language.starts_with("ja") {
+        &[
+            "Yu Gothic UI",
+            "Yu Gothic",
+            "Yu Mincho",
+            "Meiryo",
+            "Meiryo UI",
+            "MS Gothic",
+            "MS PGothic",
+            "MS UI Gothic",
+            "MS Mincho",
+            "MS PMincho",
+            "BIZ UDGothic",
+            "BIZ UDPGothic",
+            "BIZ UDMincho",
+            "BIZ UDPMincho",
+            "游ゴシック",
+            "游明朝",
+            "メイリオ",
+            "ＭＳ ゴシック",
+            "ＭＳ Ｐゴシック",
+            "ＭＳ 明朝",
+            "ＭＳ Ｐ明朝",
+        ]
+    } else if language.starts_with("ko") {
+        &[
+            "Malgun Gothic",
+            "맑은 고딕",
+            "Gulim",
+            "GulimChe",
+            "Dotum",
+            "DotumChe",
+            "Batang",
+            "BatangChe",
+            "Gungsuh",
+            "GungsuhChe",
+            "굴림",
+            "돋움",
+            "바탕",
+            "궁서",
+        ]
+    } else if language.starts_with("th") {
+        &["Leelawadee UI", "Leelawadee", "Tahoma"]
+    } else {
+        &[]
+    }
+}
+
+/// 字体列表是 random / ua-match 模式（内核按白名单过滤）时，按环境语言补上该语言 Windows 的默认字体。
+/// 只对 Windows 身份生效；system 模式不过滤，不需要补。
+fn with_locale_fonts(font_list: Option<Value>, language: Option<&str>, system: Option<&str>) -> Option<Value> {
+    let mut font_list = font_list?;
+    if matches!(system, Some("macOS") | Some("Linux")) {
+        return Some(font_list);
+    }
+    let extra = locale_windows_fonts(language.unwrap_or_default());
+    if extra.is_empty() {
+        return Some(font_list);
+    }
+    let Some(obj) = font_list.as_object_mut() else {
+        return Some(font_list);
+    };
+    if obj.get("mode").and_then(Value::as_str) == Some("system") {
+        return Some(font_list);
+    }
+    if let Some(Value::Array(fonts)) = obj.get_mut("fonts") {
+        for font in extra {
+            let exists = fonts
+                .iter()
+                .any(|f| f.as_str().is_some_and(|name| name.eq_ignore_ascii_case(font)));
+            if !exists {
+                fonts.push(Value::String((*font).to_string()));
+            }
+        }
+    }
+    Some(font_list)
 }
 
 fn get_object(source: Option<&Value>, key: &str) -> Option<serde_json::Map<String, Value>> {
