@@ -1,11 +1,81 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { Shuffle, Fingerprint } from 'lucide-react';
+import { Shuffle, Fingerprint, ShieldCheck, ShieldAlert, AlertTriangle, XCircle } from 'lucide-react';
+import { useMemo } from 'react';
 import type { WindowConfig } from '../types';
+import { applyAllFixes, checkConsistency } from '../utils/consistency-check';
 
 interface WindowSummaryProps {
   config: WindowConfig;
   onRandomize?: () => void;
+  /** 一致性自检的“修复”结果写回配置 */
+  onConfigChange?: (config: WindowConfig) => void;
+}
+
+// 一致性自检：列出互相矛盾的指纹项，能自动修的给“修复”按钮
+function ConsistencyPanel({
+  config,
+  onConfigChange,
+}: {
+  config: WindowConfig;
+  onConfigChange?: (config: WindowConfig) => void;
+}) {
+  const { t } = useTranslation('create-window');
+  const issues = useMemo(() => checkConsistency(config), [config]);
+  const fixable = issues.some((issue) => issue.fix);
+  const hasError = issues.some((issue) => issue.level === 'error');
+
+  return (
+    <div className="space-y-2 p-4 border border-border rounded-lg">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold flex items-center gap-1.5">
+          {issues.length === 0 ? (
+            <ShieldCheck className="h-4 w-4 text-green-600" />
+          ) : (
+            <ShieldAlert className={`h-4 w-4 ${hasError ? 'text-destructive' : 'text-amber-500'}`} />
+          )}
+          {t('consistency.title')}
+        </h3>
+        {fixable && onConfigChange && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => onConfigChange(applyAllFixes(config))}
+          >
+            {t('consistency.fixAll')}
+          </Button>
+        )}
+      </div>
+      {issues.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('consistency.ok')}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {issues.map((issue) => (
+            <li key={issue.id} className="flex items-start gap-1.5 text-xs">
+              {issue.level === 'error' ? (
+                <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-destructive" />
+              ) : (
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500" />
+              )}
+              <span className="flex-1 min-w-0 break-words">
+                {t(`consistency.issues.${issue.id}`, issue.params)}
+              </span>
+              {issue.fix && onConfigChange && (
+                <button
+                  type="button"
+                  className="shrink-0 text-primary hover:underline"
+                  onClick={() => onConfigChange(issue.fix!(config))}
+                >
+                  {t('consistency.fix')}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // 概要项组件
@@ -43,11 +113,13 @@ function SummaryGroup({ title, children }: { title: string; children: React.Reac
   );
 }
 
-export function WindowSummary({ config, onRandomize }: WindowSummaryProps) {
+export function WindowSummary({ config, onRandomize, onConfigChange }: WindowSummaryProps) {
   const { t } = useTranslation('create-window');
 
   return (
     <div className="p-4 space-y-4">
+      <ConsistencyPanel config={config} onConfigChange={onConfigChange} />
+
       {/* 概要 */}
       <div className="relative space-y-4 p-4 border border-border rounded-lg overflow-hidden">
         {/* 背景装饰 */}

@@ -226,6 +226,7 @@ mod tests {
             username: None,
             password: None,
             chain_proxy: None,
+            relayed_via_chain: false,
         };
         let mut config = config();
         config.language = Some("ip".into());

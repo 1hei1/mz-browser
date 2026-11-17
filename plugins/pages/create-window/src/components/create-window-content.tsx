@@ -503,7 +503,11 @@ export function CreateWindowContent({
 
         {/* 右侧：概要区域 */}
         <div className="w-[420px] border-l border-border overflow-y-auto">
-          <WindowSummary config={windowConfig} onRandomize={handleRandomizeFingerprint} />
+          <WindowSummary
+            config={windowConfig}
+            onRandomize={handleRandomizeFingerprint}
+            onConfigChange={handleFullConfigUpdate}
+          />
         </div>
       </div>
 

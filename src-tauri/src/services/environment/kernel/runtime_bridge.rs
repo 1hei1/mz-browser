@@ -533,7 +533,9 @@ async fn prepare_start_request(
     })
 }
 
-/// WebRTC 选“替换”且代理是 SOCKS5 时，内核把 WebRTC 的 UDP 经代理转发（--mz-webrtc-udp-relay）
+/// WebRTC 选“替换”且代理是 SOCKS5 时，内核把 WebRTC 的 UDP 经代理转发（--mz-webrtc-udp-relay）。
+/// 走链式代理时不开：本机中继只转 TCP，UDP 转发会绕过前置代理直接连目标代理，
+/// 内核就只剩 disable_non_proxied_udp（WebRTC 只走 TCP 或不连），绝不直连
 fn webrtc_udp_relay_enabled(
     engine: KernelEngine,
     config: Option<&FingerprintConfig>,
@@ -541,7 +543,9 @@ fn webrtc_udp_relay_enabled(
 ) -> bool {
     engine == KernelEngine::Chromium
         && config.is_some_and(|config| config.webrtc.as_deref() == Some("replace"))
-        && proxy.is_some_and(|proxy| proxy.proxy_type.eq_ignore_ascii_case("socks5"))
+        && proxy.is_some_and(|proxy| {
+            proxy.proxy_type.eq_ignore_ascii_case("socks5") && !proxy.relayed_via_chain
+        })
 }
 
 /// "1280,720" -> (1280, 720)
@@ -598,10 +602,13 @@ mod tests {
             username: None,
             password: None,
             chain_proxy: None,
+            relayed_via_chain: false,
         };
         let replace = config("replace");
         let socks5 = proxy("SOCKS5");
         assert!(webrtc_udp_relay_enabled(KernelEngine::Chromium, Some(&replace), Some(&socks5)));
+        let chained = ProxyConfig { relayed_via_chain: true, ..proxy("SOCKS5") };
+        assert!(!webrtc_udp_relay_enabled(KernelEngine::Chromium, Some(&replace), Some(&chained)));
         assert!(!webrtc_udp_relay_enabled(KernelEngine::Chromium, Some(&replace), Some(&proxy("http"))));
         assert!(!webrtc_udp_relay_enabled(KernelEngine::Chromium, Some(&replace), None));
         assert!(!webrtc_udp_relay_enabled(KernelEngine::Chromium, Some(&config("disable")), Some(&socks5)));

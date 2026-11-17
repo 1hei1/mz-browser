@@ -93,6 +93,7 @@ fn validated_proxy(
         username,
         password,
         chain_proxy,
+        relayed_via_chain: false,
     })
 }
 
