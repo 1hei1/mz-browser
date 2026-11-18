@@ -146,6 +146,10 @@ pub async fn launch_browser(
             .as_ref()
             .and_then(|config| config.interface_language.as_deref().or(config.language.as_deref())),
         request.webrtc_udp_relay,
+        request
+            .fingerprint_config
+            .as_ref()
+            .and_then(|config| config.device_pixel_ratio),
         job_manager.clone(),
     )
     .await;
@@ -385,6 +389,7 @@ async fn spawn_browser_process(
     extension_dirs: Option<&Vec<String>>,
     ui_language: Option<&str>,
     webrtc_udp_relay: bool,
+    device_pixel_ratio: Option<f64>,
     job_manager: Arc<JobManager>,
 ) -> Result<Child> {
     validate_browser_runtime_layout(exe_path)?;
@@ -407,6 +412,11 @@ async fn spawn_browser_process(
     if webrtc_udp_relay {
         // 内核把 WebRTC 的 UDP 全部经 SOCKS5 UDP ASSOCIATE 转发（浏览器复制给网络服务和渲染进程）
         args.push(WEBRTC_UDP_RELAY_SWITCH.to_string());
+    }
+    // 让浏览器真的按环境配置的 DPR 渲染：只改 devicePixelRatio 而实际按宿主机缩放（如 150%）渲染时，
+    // 旋转元素的亚像素尺寸、视口小数宽度等都和报出的 DPR 对不上（CreepJS DOMRect "unknown rotate dimensions"）。
+    if let Some(arg) = device_pixel_ratio.and_then(device_scale_factor_arg) {
+        args.push(arg);
     }
     if let Some(position) = window_position {
         args.push(format!("--window-position={}", position));
@@ -481,6 +491,12 @@ async fn spawn_browser_process(
 
 /// 把环境配置里的语言（如 "ja-JP"）转成 `--lang=` 参数；只接受 BCP-47 风格的字符，
 /// 配置尚未解析（"ip"/空）时返回 None，由浏览器使用默认语言。
+fn device_scale_factor_arg(ratio: f64) -> Option<String> {
+    // 只接受常见缩放范围，异常值不传，交给系统缩放
+    (ratio.is_finite() && (0.5..=4.0).contains(&ratio))
+        .then(|| format!("--force-device-scale-factor={}", ratio))
+}
+
 fn browser_ui_language_arg(language: &str) -> Option<String> {
     let language = language.trim();
     let valid = !language.is_empty()
@@ -615,6 +631,20 @@ mod policy_tests {
         let args = super::base_browser_args("env-1", "test-profile", 29200);
         assert!(args.iter().any(|arg| arg == "--no-first-run"));
         assert!(args.iter().any(|arg| arg == "--no-default-browser-check"));
+    }
+
+    #[test]
+    fn device_scale_factor_follows_the_environment_dpr() {
+        assert_eq!(
+            super::device_scale_factor_arg(1.0).as_deref(),
+            Some("--force-device-scale-factor=1")
+        );
+        assert_eq!(
+            super::device_scale_factor_arg(1.25).as_deref(),
+            Some("--force-device-scale-factor=1.25")
+        );
+        assert_eq!(super::device_scale_factor_arg(0.0), None);
+        assert_eq!(super::device_scale_factor_arg(f64::NAN), None);
     }
 
     #[test]
