@@ -129,8 +129,19 @@ export function pickWindowsRelease(): WindowsRelease {
 }
 
 /** 按权重抽一台整机；宿主机核心数不够的样本不抽（声明的核心数超过真实核心数，多线程跑分一测就露馅） */
+/**
+ * 显卡串里没有具体型号、只有通用名加设备号的样本（如 "Intel(R) Graphics (0x000046D4)"、
+ * "AMD Radeon(TM) Graphics (0x00001638)"）。这些是真实上报的串，但检测站（如 CreepJS）
+ * 认不出型号，只给 moderate 置信度，所以随机生成时不抽它们；手动选择仍然可以用。
+ */
+export function isGenericGpuRenderer(renderer: string): boolean {
+  return /\b(?:Intel\(R\) Graphics|Radeon\(TM\) Graphics) \(0x[0-9A-Fa-f]+\)/.test(renderer);
+}
+
 export function pickDeviceSample(hostCores: number): DeviceSample {
-  const feasible = DEVICE_SAMPLES.filter((sample) => Math.min(...sample.cores) <= hostCores);
-  const pool = feasible.length > 0 ? feasible : DEVICE_SAMPLES;
+  const named = DEVICE_SAMPLES.filter((sample) => !isGenericGpuRenderer(sample.gpuRenderer));
+  const base = named.length > 0 ? named : DEVICE_SAMPLES;
+  const feasible = base.filter((sample) => Math.min(...sample.cores) <= hostCores);
+  const pool = feasible.length > 0 ? feasible : base;
   return weightedChoice(pool, (sample) => sample.weight);
 }
