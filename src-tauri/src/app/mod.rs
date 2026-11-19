@@ -83,15 +83,23 @@ pub fn run() {
                 user_kernel_catalog.display()
             );
 
+            let headless = crate::core::headless::enabled();
+            if headless {
+                log::info!("Headless server mode (MZ_HEADLESS): no tray, no URL handler");
+            }
+
             // Isolated runs must not replace an installed app's URL handler.
-            if std::env::var_os("MZ_ROOT_DIR").is_none() {
+            if std::env::var_os("MZ_ROOT_DIR").is_none() && !headless {
                 setup::register_deep_link(app.handle().clone())?;
             }
 
             crate::commands::window::create_main_window(app.handle().clone())?;
             log::info!("Hidden main window created for single-window startup");
 
-            tray::menu(app)?;
+            // 服务器上通常没有托盘（appindicator），无界面模式不创建
+            if !headless {
+                tray::menu(app)?;
+            }
 
             // 初始化依赖 Tauri 的组件
             lifecycle::init_tauri_dependent(app.handle())?;

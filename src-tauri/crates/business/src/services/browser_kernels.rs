@@ -516,15 +516,28 @@ pub async fn get_browser_kernel(
     .map_err(|error| error.to_string())
 }
 
+/// 当前系统在内核目录里的平台名。按名字或默认内核挑选时只取本平台的包：
+/// 同名的 "Chrome 158" 在 Windows 和 Linux 各有一份。
+pub fn host_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
+}
+
 pub async fn find_browser_kernel_by_name(
     pool: &DbPool,
     resource_name: &str,
 ) -> Result<Option<BrowserKernelVersion>, String> {
     sqlx::query_as::<_, BrowserKernelVersion>(&format!(
         "{KERNEL_SELECT} WHERE a.resource_name = $1 AND a.status = 'active' \
-         ORDER BY a.is_latest DESC, a.version DESC LIMIT 1"
+         AND lower(a.platform) = $2 ORDER BY a.is_latest DESC, a.version DESC LIMIT 1"
     ))
     .bind(resource_name.trim())
+    .bind(host_platform())
     .fetch_optional(pool)
     .await
     .map_err(|error| error.to_string())
@@ -533,8 +546,10 @@ pub async fn find_browser_kernel_by_name(
 pub async fn default_browser_kernel(pool: &DbPool) -> Result<Option<BrowserKernelVersion>, String> {
     sqlx::query_as::<_, BrowserKernelVersion>(&format!(
         "{KERNEL_SELECT} WHERE a.type_code = 'MZ_KERNEL_CHROMIUM' \
-         AND a.status = 'active' ORDER BY a.is_latest DESC, a.version DESC LIMIT 1"
+         AND a.status = 'active' AND lower(a.platform) = $1 \
+         ORDER BY a.is_latest DESC, a.version DESC LIMIT 1"
     ))
+    .bind(host_platform())
     .fetch_optional(pool)
     .await
     .map_err(|error| error.to_string())
@@ -772,7 +787,7 @@ mod tests {
             .url
             .as_deref()
             .unwrap()
-            .starts_with("https://github.com/mouzhai163/browser-kernel/releases/download/"));
+            .contains("/browser-kernel/releases/download/"));
 
         // Firefox 内核单独成组，不会混进 Chromium 的列表，也不会成为默认内核
         let firefox = list_browser_kernels(&pool, Some("windows"), Some("MZ_KERNEL_FIREFOX"))

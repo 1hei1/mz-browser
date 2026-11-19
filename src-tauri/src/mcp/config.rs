@@ -30,6 +30,9 @@ pub struct McpConfig {
     /// Start the MCP service automatically when the app starts. Off by default.
     #[serde(default)]
     pub auto_start: bool,
+    /// 无界面服务器模式（MZ_HEADLESS）下由环境变量打开：页面工具可访问所有环境。不保存。
+    #[serde(skip)]
+    pub allow_all_environments: bool,
 }
 
 impl Default for McpConfig {
@@ -43,13 +46,16 @@ impl Default for McpConfig {
             act_tools_enabled: false,
             full_page_access_enabled: false,
             auto_start: false,
+            allow_all_environments: false,
         }
     }
 }
 
 impl McpConfig {
     pub fn authorizes_environment(&self, id: &str) -> bool {
-        self.enabled && self.allowed_environment_uuids.iter().any(|allowed| allowed == id)
+        self.enabled
+            && (self.allow_all_environments
+                || self.allowed_environment_uuids.iter().any(|allowed| allowed == id))
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -157,14 +163,50 @@ pub fn load_config(app: &AppHandle) -> Result<McpConfig, String> {
             } else if !business::secret::is_protected(&stored) {
                 save_config(app, &config)?;
             }
+            apply_headless_overrides(app, &mut config)?;
             config.validate()?;
             Ok(config)
         }
         None => {
-            let config = McpConfig::default();
+            let mut config = McpConfig::default();
             save_config(app, &config)?;
+            apply_headless_overrides(app, &mut config)?;
             Ok(config)
         }
+    }
+}
+
+/// 无界面服务器模式：MCP 的开关、工具层和令牌由环境变量决定（见 core::headless）。
+fn apply_headless_overrides(app: &AppHandle, config: &mut McpConfig) -> Result<(), String> {
+    if !crate::core::headless::enabled() {
+        return Ok(());
+    }
+    apply_overrides(config, &crate::core::headless::McpOverrides::from_env());
+    // allow_all_environments 不保存，比较时去掉
+    let comparable = McpConfig { allow_all_environments: false, ..config.clone() };
+    if load_saved_flags(app) != Some(comparable) {
+        save_config(app, config)?;
+    }
+    Ok(())
+}
+
+fn load_saved_flags(app: &AppHandle) -> Option<McpConfig> {
+    let value = get_store_key_checked(app, keys::MCP).ok()??;
+    let mut config = serde_json::from_value::<McpConfig>(value).ok()?;
+    config.access_token = business::secret::reveal(&config.access_token)?;
+    Some(config)
+}
+
+fn apply_overrides(config: &mut McpConfig, overrides: &crate::core::headless::McpOverrides) {
+    config.enabled = true;
+    config.auto_start = true;
+    config.page_tools_enabled = overrides.page;
+    config.act_tools_enabled = overrides.act;
+    config.full_page_access_enabled = overrides.full;
+    config.manage_tools_enabled = overrides.manage;
+    config.allow_all_environments = overrides.all_environments;
+    if let Some(token) = &overrides.token {
+        config.access_token = token.clone();
     }
 }
 
@@ -249,6 +291,19 @@ pub fn new_access_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn headless_overrides_open_all_environments_without_saving_that() {
+        let mut config = McpConfig::default();
+        let overrides = crate::core::headless::McpOverrides::from_values(None, None, Some("b".repeat(64)));
+        apply_overrides(&mut config, &overrides);
+        assert!(config.enabled && config.auto_start && config.act_tools_enabled && config.manage_tools_enabled);
+        assert!(config.authorizes_environment("any-env"));
+        assert_eq!(config.access_token, "b".repeat(64));
+        config.validate().unwrap();
+        let stored = serde_json::to_value(&config).unwrap();
+        assert!(stored.get("allowAllEnvironments").is_none());
+    }
 
     #[test]
     fn defaults_are_authenticated_and_deny_all_environments() {

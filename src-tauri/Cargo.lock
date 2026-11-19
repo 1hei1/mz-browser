@@ -560,6 +560,7 @@ dependencies = [
  "chrono",
  "croner",
  "hex",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
