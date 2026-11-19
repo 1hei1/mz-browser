@@ -5,7 +5,7 @@ name: build-linux
 # - 推送 v* 标签：和 build-x64 一起把 .deb 传到同一个 Release。
 on:
   push:
-    branches: [fork-build]
+    branches: [fork-build, feat/linux-headless]
     tags: ['v*']
   workflow_dispatch:
 
