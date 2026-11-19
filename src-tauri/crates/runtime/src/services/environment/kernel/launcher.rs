@@ -58,7 +58,7 @@ pub async fn launch_browser(
     status_manager.set_status(&env_id, EnvironmentStatus::Initializing).await;
     status_manager.set_status(&env_id, EnvironmentStatus::Starting).await;
     // 上一个进程可能还在退出、占着配置目录，等它走完再启动
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", unix))]
     if let Err(error) = job_manager.finish_process(&env_id).await {
         log::warn!("previous browser of {env_id} did not exit cleanly: {error}");
     }
@@ -424,6 +424,8 @@ async fn spawn_browser_process(
     if let Some(size) = window_size {
         args.push(format!("--window-size={}", size));
     }
+    #[cfg(target_os = "linux")]
+    args.extend(linux_server_args(&LinuxHostEnv::current()));
     if let Some(dirs) = extension_dirs {
         if !dirs.is_empty() {
             args.push(format!("--load-extension={}", dirs.join(",")));
@@ -449,6 +451,12 @@ async fn spawn_browser_process(
     {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    #[cfg(unix)]
+    {
+        // 浏览器自成一个进程组：停止/退出时连同渲染、GPU 等子进程一起结束（见 JobManager）
+        command.process_group(0);
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -487,6 +495,53 @@ async fn spawn_browser_process(
         ),
     );
     Ok(child)
+}
+
+/// Linux 服务器（无桌面、通常无 GPU）上的运行方式，由环境变量决定：
+/// - `MZ_BROWSER_HEADLESS`：1 = `--headless=new`，0 = 有界面（需要 DISPLAY，如 Xvfb）；
+///   未设置时没有 DISPLAY/WAYLAND_DISPLAY 就用无头。
+/// - `MZ_BROWSER_GPU`：1 = 用宿主机 GPU；默认用 SwiftShader 软件渲染。Chrome 137 起不再自动
+///   回退到 SwiftShader，不显式打开 WebGL 会直接不可用（指纹检测里非常显眼）。
+/// - root 运行时 Chromium 拒绝启用沙箱，必须 `--no-sandbox`。
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Default)]
+struct LinuxHostEnv {
+    headless: Option<String>,
+    gpu: Option<String>,
+    has_display: bool,
+    is_root: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxHostEnv {
+    fn current() -> Self {
+        let non_empty = |key: &str| std::env::var(key).ok().filter(|v| !v.trim().is_empty());
+        Self {
+            headless: non_empty("MZ_BROWSER_HEADLESS"),
+            gpu: non_empty("MZ_BROWSER_GPU"),
+            has_display: non_empty("DISPLAY").is_some() || non_empty("WAYLAND_DISPLAY").is_some(),
+            is_root: unsafe { libc::geteuid() } == 0,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_server_args(host: &LinuxHostEnv) -> Vec<String> {
+    let flag = |value: &Option<String>| value.as_deref().map(|v| matches!(v.trim(), "1" | "true" | "yes"));
+    let mut args = Vec::new();
+    if flag(&host.headless).unwrap_or(!host.has_display) {
+        args.push("--headless=new".to_string());
+    }
+    if !flag(&host.gpu).unwrap_or(false) {
+        args.push("--use-angle=swiftshader".to_string());
+        args.push("--enable-unsafe-swiftshader".to_string());
+    }
+    if host.is_root {
+        args.push("--no-sandbox".to_string());
+    }
+    // 服务器上 /dev/shm 往往很小（容器默认 64MB），渲染进程会崩
+    args.push("--disable-dev-shm-usage".to_string());
+    args
 }
 
 /// 把环境配置里的语言（如 "ja-JP"）转成 `--lang=` 参数；只接受 BCP-47 风格的字符，
@@ -633,6 +688,25 @@ mod policy_tests {
         assert!(args.iter().any(|arg| arg == "--no-default-browser-check"));
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_server_defaults_to_headless_software_gl() {
+        use super::{LinuxHostEnv, linux_server_args};
+        let args = linux_server_args(&LinuxHostEnv::default());
+        assert!(args.contains(&"--headless=new".to_string()));
+        assert!(args.contains(&"--enable-unsafe-swiftshader".to_string()));
+        assert!(!args.contains(&"--no-sandbox".to_string()));
+
+        let xvfb = LinuxHostEnv { has_display: true, is_root: true, gpu: Some("1".into()), ..Default::default() };
+        let args = linux_server_args(&xvfb);
+        assert!(!args.iter().any(|a| a.starts_with("--headless")));
+        assert!(!args.iter().any(|a| a.contains("swiftshader")));
+        assert!(args.contains(&"--no-sandbox".to_string()));
+
+        let forced = LinuxHostEnv { has_display: true, headless: Some("1".into()), ..Default::default() };
+        assert!(linux_server_args(&forced).contains(&"--headless=new".to_string()));
+    }
+
     #[test]
     fn device_scale_factor_follows_the_environment_dpr() {
         assert_eq!(
@@ -773,14 +847,14 @@ pub async fn stop_environment(
     if let Err(error) = manager.disconnect(&env_id).await {
         log_warn("kernel", format!("Close request failed for {env_id}; waiting for the owned process: {error}"));
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", unix))]
     let forced = match job_manager.finish_process(&env_id).await? {
         Some(forced) => forced,
         None => return Ok(()),
     };
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", unix)))]
     let forced = false;
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", unix)))]
     job_manager.remove(&env_id).await;
     if forced {
         log_warn("kernel", format!("Forced shutdown for {env_id}; profile flush is not guaranteed"));
