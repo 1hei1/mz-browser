@@ -9,7 +9,7 @@ pub use api::{
     BatchLaunchResult, CdpEndpointResponse, CookieGroup, DestroyContextRequest, EmptyPayload,
     EnvConnectionPayload, EnvironmentCommandRequest, EnvironmentCommandResponse,
     EnvironmentResponse, EnvironmentStartRequest, ErrorResponse, FingerprintConfig, GeckoLaunchSpec,
-    HandshakeRequest, HandshakeResponse, InitializeContextRequest, RpaTabCloseResult, RpaTabInfo,
+    HandshakeRequest, HandshakeResponse, InitializeContextRequest, PasskeyConfig, RpaTabCloseResult, RpaTabInfo,
     RpaTabSelection, RpaTabsSnapshot, RunningEnvironment, RuntimeContextInput,
     RuntimeEventEnvelope, RuntimePhase, RuntimeStateSnapshot, StateResponse, SyncCommandRequest,
     SyncCommandResponse, SyncResponse, UserInfo, WindowBoundsRequest,
