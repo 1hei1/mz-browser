@@ -81,6 +81,23 @@ export interface CookieGroupItem {
   cookie_text: string;
 }
 
+/** 环境的一条通行密钥（列表展示用，后端不返回私钥） */
+export interface EnvironmentPasskeyItem {
+  id: number;
+  environment_uuid: string;
+  credential_id: string;
+  /** 站点（RP ID），如 webauthn.io */
+  rp_id: string;
+  user_name: string;
+  user_display_name: string;
+  sign_count: number;
+  discoverable: boolean;
+  /** 内核里的创建时间，Unix 毫秒 */
+  created_at_ms: number;
+  /** 最近一次用它登录的时间，Unix 毫秒 */
+  last_used_at_ms: number | null;
+}
+
 export interface UpdateEnvironmentRequest {
   uuid: string;
   name?: string;

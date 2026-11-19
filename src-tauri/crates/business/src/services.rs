@@ -7,6 +7,7 @@ pub mod chrome_releases;
 pub mod environment_transfer;
 pub mod environments;
 pub mod groups;
+pub mod passkeys;
 pub mod proxies;
 pub mod rpa;
 pub mod tags;

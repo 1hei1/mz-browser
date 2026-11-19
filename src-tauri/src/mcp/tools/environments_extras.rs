@@ -47,6 +47,7 @@ pub fn routes() -> Vec<ToolRoute<McpServer>> {
         .with_async_tool::<AddEnvironmentCookieTool>()
         .with_async_tool::<DeleteEnvironmentCookieTool>()
         .with_async_tool::<ClearEnvironmentCookiesTool>()
+        .with_async_tool::<ListEnvironmentPasskeysTool>()
         .into_iter()
         .collect()
 }
@@ -262,6 +263,30 @@ pub struct ListEnvironmentCookiesOutput {
     pub items: Vec<EnvironmentCookieSummary>,
 }
 
+/// 一条通行密钥的元数据。私钥只在应用和内核之间传递，这里不返回
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EnvironmentPasskeySummary {
+    pub id: i64,
+    /// 站点（RP ID），如 webauthn.io
+    pub rp_id: String,
+    pub user_name: String,
+    pub user_display_name: String,
+    /// 凭据 ID（base64url，无填充）
+    pub credential_id: String,
+    pub sign_count: i64,
+    pub discoverable: bool,
+    /// 创建时间，Unix 毫秒
+    pub created_at_ms: i64,
+    /// 最近一次使用时间，Unix 毫秒
+    pub last_used_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ListEnvironmentPasskeysOutput {
+    pub env_uuid: String,
+    pub items: Vec<EnvironmentPasskeySummary>,
+}
+
 struct BatchGetEnvironmentsTool;
 struct CreateEnvironmentTool;
 struct UpdateEnvironmentTool;
@@ -288,6 +313,7 @@ struct ListEnvironmentCookiesTool;
 struct AddEnvironmentCookieTool;
 struct DeleteEnvironmentCookieTool;
 struct ClearEnvironmentCookiesTool;
+struct ListEnvironmentPasskeysTool;
 
 macro_rules! environment_uuid_tool {
     ($tool:ident, $input:ty, $output:ty, $name:literal, $description:literal, |$service:ident, $param:ident| $body:block) => {
@@ -848,6 +874,24 @@ environment_uuid_tool!(
     }
 );
 
+// 只读：列出环境里网站创建的通行密钥（不含私钥）。删除只在界面里做
+environment_uuid_tool!(
+    ListEnvironmentPasskeysTool,
+    EnvironmentIdentityInput,
+    ListEnvironmentPasskeysOutput,
+    "mz_list_environment_passkeys",
+    "List passkeys (WebAuthn credentials) saved for a MZ指纹浏览器 environment: site (rp_id), user name, created and last used time. Read-only; private keys are never returned.",
+    |service, param| {
+        let env_uuid = require_env_uuid(&param.env_uuid)?;
+        let items = service.bridge().list_environment_passkeys(&env_uuid).await?;
+
+        Ok(ListEnvironmentPasskeysOutput {
+            env_uuid,
+            items: items.into_iter().map(map_environment_passkey).collect(),
+        })
+    }
+);
+
 fn sort_environment_map(
     items: HashMap<String, LocalApiEnvironmentDetailResponse>,
 ) -> Vec<LocalApiEnvironmentDetailResponse> {
@@ -908,6 +952,22 @@ fn map_environment_cookie(item: LocalApiEnvironmentCookieItem) -> EnvironmentCoo
     EnvironmentCookieSummary {
         site: item.site,
         cookie_text: item.cookie_text,
+    }
+}
+
+fn map_environment_passkey(
+    item: business::services::passkeys::EnvironmentPasskeyDto,
+) -> EnvironmentPasskeySummary {
+    EnvironmentPasskeySummary {
+        id: item.id,
+        rp_id: item.rp_id,
+        user_name: item.user_name,
+        user_display_name: item.user_display_name,
+        credential_id: item.credential_id,
+        sign_count: item.sign_count,
+        discoverable: item.discoverable,
+        created_at_ms: item.created_at_ms,
+        last_used_at_ms: item.last_used_at_ms,
     }
 }
 

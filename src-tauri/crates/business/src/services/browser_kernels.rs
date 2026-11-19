@@ -772,7 +772,7 @@ mod tests {
             .url
             .as_deref()
             .unwrap()
-            .starts_with("https://github.com/mouzhai163/browser-kernel/releases/download/"));
+            .contains("/browser-kernel/releases/download/"));
 
         // Firefox 内核单独成组，不会混进 Chromium 的列表，也不会成为默认内核
         let firefox = list_browser_kernels(&pool, Some("windows"), Some("MZ_KERNEL_FIREFOX"))

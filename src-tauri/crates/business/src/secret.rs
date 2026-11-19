@@ -144,11 +144,12 @@ impl From<StoredText> for String {
 }
 
 /// (表, 列)。表名和列名都是这里写死的常量，不来自外部输入。
-const ENCRYPTED_COLUMNS: [(&str, &str); 4] = [
+const ENCRYPTED_COLUMNS: [(&str, &str); 5] = [
     ("proxies", "password"),
     ("platform_accounts", "password"),
     ("platform_accounts", "totp_secret"),
     ("environment_cookies", "value"),
+    ("environment_passkeys", "private_key"),
 ];
 
 /// 把旧版本留下的明文加密。可以重复执行，已加密的行不会再处理。

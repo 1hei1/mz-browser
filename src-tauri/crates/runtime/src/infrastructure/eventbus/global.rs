@@ -21,6 +21,7 @@ pub async fn init_eventbus_manager(events: EventPublisher) -> Arc<EventBusManage
             let manager = Arc::new(EventBusManager::new());
 
             let forward_manager = manager.clone();
+            let passkey_sink = events.clone();
             manager
                 .set_message_handler(move |env_id, msg| {
                     if msg.topic == Topic::SyncInputEvent {
@@ -37,6 +38,20 @@ pub async fn init_eventbus_manager(events: EventPublisher) -> Arc<EventBusManage
                         tokio::spawn(async move {
                             manager.forward_paste_to_slaves(&sender, data).await;
                         });
+                    } else if msg.topic == Topic::PasskeyChanged {
+                        // 通行密钥变化：交给应用落盘（含私钥，只在进程内传递，不发给前端）
+                        match serde_json::from_slice::<serde_json::Value>(&msg.data) {
+                            Ok(event) => {
+                                let _ = passkey_sink.emit(
+                                    "environment.passkey_changed",
+                                    &serde_json::json!({ "env_uuid": env_id, "event": event }),
+                                );
+                            }
+                            Err(error) => log_debug(
+                                "eventbus",
+                                format!("[{}] invalid passkey event: {}", env_id, error),
+                            ),
+                        }
                     } else if msg.topic == Topic::SyncInputDebug {
                         let s = String::from_utf8_lossy(&msg.data);
                         log_debug("eventbus", format!("[SyncInput] {}", s));

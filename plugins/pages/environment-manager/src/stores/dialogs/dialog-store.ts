@@ -79,6 +79,10 @@ interface DialogState {
   editCookiesDialogOpen: boolean;
   editCookiesEnvironment: Environment | null;
 
+  // 通行密钥对话框
+  passkeysDialogOpen: boolean;
+  passkeysEnvironment: Environment | null;
+
   // 清除缓存确认对话框
   clearCacheDialogOpen: boolean;
   clearCacheEnvironment: Environment | null;
@@ -211,6 +215,10 @@ interface DialogActions {
   openEditCookiesDialog: (env: Environment) => void;
   closeEditCookiesDialog: () => void;
 
+  // 通行密钥对话框
+  openPasskeysDialog: (env: Environment) => void;
+  closePasskeysDialog: () => void;
+
   // 清除缓存确认对话框
   setClearCacheDialogOpen: (open: boolean) => void;
   setClearCacheEnvironment: (env: Environment | null) => void;
@@ -281,6 +289,8 @@ export const useEnvironmentDialogStore = create<DialogState & DialogActions>((se
   editNoteEnvironment: null,
   editCookiesDialogOpen: false,
   editCookiesEnvironment: null,
+  passkeysDialogOpen: false,
+  passkeysEnvironment: null,
   clearCacheDialogOpen: false,
   clearCacheEnvironment: null,
   editUrlDialogOpen: false,
@@ -446,6 +456,10 @@ export const useEnvironmentDialogStore = create<DialogState & DialogActions>((se
   setEditCookiesEnvironment: (env) => set({ editCookiesEnvironment: env }),
   openEditCookiesDialog: (env) => set({ editCookiesDialogOpen: true, editCookiesEnvironment: env }),
   closeEditCookiesDialog: () => set({ editCookiesDialogOpen: false, editCookiesEnvironment: null }),
+
+  // 通行密钥对话框
+  openPasskeysDialog: (env) => set({ passkeysDialogOpen: true, passkeysEnvironment: env }),
+  closePasskeysDialog: () => set({ passkeysDialogOpen: false, passkeysEnvironment: null }),
 
   // 清除缓存确认对话框
   setClearCacheDialogOpen: (open) => set({ clearCacheDialogOpen: open }),

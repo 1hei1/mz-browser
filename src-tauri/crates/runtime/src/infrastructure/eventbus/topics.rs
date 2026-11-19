@@ -26,6 +26,8 @@ pub enum Topic {
     SyncInputDebug = 0x0802,
     SyncPaste = 0x0803,
     LaunchConfig = 0x0900,
+    /// 内核上报通行密钥变化（新建 / 计数更新 / 删除），JSON
+    PasskeyChanged = 0x0901,
 }
 
 impl From<u16> for Topic {
@@ -54,6 +56,7 @@ impl From<u16> for Topic {
             0x0802 => Self::SyncInputDebug,
             0x0803 => Self::SyncPaste,
             0x0900 => Self::LaunchConfig,
+            0x0901 => Self::PasskeyChanged,
             _ => Self::Handshake,
         }
     }

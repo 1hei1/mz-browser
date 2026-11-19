@@ -25,6 +25,7 @@ import type {
   EnvironmentDetailResponse,
   CreateResponse,
   CookieGroupItem,
+  EnvironmentPasskeyItem,
   UrlItem,
   Environment,
   GroupItem,
@@ -160,6 +161,10 @@ export const API_ENDPOINTS = {
   LIST_COOKIES: 'environments/cookies/list',
   ADD_COOKIES: 'environments/cookies/add',
   CLEAR_COOKIES: 'environments/cookies/clear',
+
+  // 通行密钥
+  LIST_PASSKEYS: 'environments/passkeys/list',
+  DELETE_PASSKEY: 'environments/passkeys/delete',
 
   // URLs
   LIST_URLS: 'environments/urls/list',
@@ -822,6 +827,29 @@ export async function createAccount(request: {
     throw new Error(result.message || '创建账号失败');
   }
   return result.data!.uuid;
+}
+
+// ============ 通行密钥 API ============
+
+/**
+ * 获取环境保存的通行密钥（不含私钥）
+ */
+export async function getEnvironmentPasskeys(uuid: string): Promise<EnvironmentPasskeyItem[]> {
+  const result = await post<EnvironmentPasskeyItem[]>(API_ENDPOINTS.LIST_PASSKEYS, { uuid });
+  if (!isSuccess(result)) {
+    throw new Error(result.message || '获取通行密钥失败');
+  }
+  return result.data || [];
+}
+
+/**
+ * 删除一条通行密钥。环境运行中删除时，要等环境重启后内核里才会消失
+ */
+export async function deleteEnvironmentPasskey(id: number): Promise<void> {
+  const result = await post(API_ENDPOINTS.DELETE_PASSKEY, { id });
+  if (!isSuccess(result)) {
+    throw new Error(result.message || '删除通行密钥失败');
+  }
 }
 
 // ============ Cookies API ============
