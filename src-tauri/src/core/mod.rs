@@ -2,6 +2,7 @@
 
 pub mod app_info;
 pub mod error;
+pub mod headless;
 pub mod logger;
 pub mod paths;
 pub mod utils;

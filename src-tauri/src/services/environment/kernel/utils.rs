@@ -66,6 +66,12 @@ pub fn extract_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<()> {
             }
             let mut out_file = fs::File::create(&out_path)?;
             std::io::copy(&mut entry, &mut out_file)?;
+            // Linux 内核包里 mz、chrome_crashpad_handler 等需要可执行位
+            #[cfg(unix)]
+            if let Some(mode) = entry.unix_mode() {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&out_path, fs::Permissions::from_mode(mode & 0o777))?;
+            }
         }
     }
     Ok(())
@@ -156,8 +162,9 @@ pub fn core_dll_name(engine: KernelEngine) -> &'static str {
         KernelEngine::Chromium => "chrome.dll",
         #[cfg(target_os = "macos")]
         KernelEngine::Chromium => "Chromium Framework",
+        // Linux 非组件构建没有单独的 libchrome.so，整个浏览器就在主程序里
         #[cfg(target_os = "linux")]
-        KernelEngine::Chromium => "libchrome.so",
+        KernelEngine::Chromium => "mz",
         #[cfg(target_os = "windows")]
         KernelEngine::Gecko => "xul.dll",
         #[cfg(target_os = "macos")]

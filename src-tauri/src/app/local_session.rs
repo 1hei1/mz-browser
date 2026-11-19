@@ -53,6 +53,20 @@ async fn start_mcp_if_configured(app: &tauri::AppHandle, app_context: &AppContex
     }
     if let Err(error) = app_context.mcp_manager.start(app).await {
         log::warn!("failed to auto-start MCP: {error}");
+        return;
+    }
+    // 无界面服务器模式：把地址和令牌写给本机 agent
+    if crate::core::headless::enabled() {
+        match load_config(app) {
+            Ok(config) => match crate::core::headless::write_mcp_connection_file(
+                &config.endpoint(),
+                &config.access_token,
+            ) {
+                Ok(path) => log::info!("MCP connection info written to {}", path.display()),
+                Err(error) => log::warn!("cannot write the MCP connection file: {error}"),
+            },
+            Err(error) => log::warn!("cannot read the MCP settings: {error}"),
+        }
     }
 }
 

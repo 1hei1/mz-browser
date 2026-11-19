@@ -95,6 +95,9 @@ unsafe impl Sync for JobHandle {}
 pub struct JobManager {
     #[cfg(target_os = "windows")]
     jobs: Arc<RwLock<HashMap<String, Arc<JobHandle>>>>,
+    /// Linux/macOS：环境 → 浏览器主进程 pid（同时是进程组 id，见 launcher 的 process_group(0)）
+    #[cfg(unix)]
+    pids: tokio::sync::RwLock<std::collections::HashMap<String, i32>>,
 }
 
 impl JobManager {
@@ -102,6 +105,8 @@ impl JobManager {
         Self {
             #[cfg(target_os = "windows")]
             jobs: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(unix)]
+            pids: tokio::sync::RwLock::new(std::collections::HashMap::new()),
         }
     }
 
@@ -115,9 +120,38 @@ impl JobManager {
         Ok(())
     }
 
-    #[cfg(not(target_os = "windows"))]
-    pub async fn create_and_assign(&self, _env_uuid: &str, _pid: u32) -> Result<()> {
+    #[cfg(unix)]
+    pub async fn create_and_assign(&self, env_uuid: &str, pid: u32) -> Result<()> {
+        let pid = i32::try_from(pid)
+            .map_err(|_| RuntimeError::Internal(format!("invalid pid {pid}")))?;
+        self.pids.write().await.insert(env_uuid.to_string(), pid);
         Ok(())
+    }
+
+    /// 等浏览器自己退出（让它写完 Cookie/缓存），超时就结束整个进程组。
+    /// 返回 None 表示没有记录这个环境的进程，Some(forced) 表示是否强制结束。
+    #[cfg(unix)]
+    pub async fn finish_process(&self, env_uuid: &str) -> Result<Option<bool>> {
+        self.finish_process_with_timeout(env_uuid, std::time::Duration::from_secs(15)).await
+    }
+
+    #[cfg(unix)]
+    async fn finish_process_with_timeout(&self, env_uuid: &str, grace: std::time::Duration) -> Result<Option<bool>> {
+        let Some(pid) = self.pids.read().await.get(env_uuid).copied() else { return Ok(None) };
+        let forced = !unix_process::wait_for_exit(pid, grace).await;
+        if forced {
+            unix_process::kill_group(pid);
+            if !unix_process::wait_for_exit(pid, std::time::Duration::from_secs(30)).await {
+                return Err(RuntimeError::Internal("Owned browser did not exit after termination".into()));
+            }
+        }
+        let mut pids = self.pids.write().await;
+        if pids.get(env_uuid) == Some(&pid) {
+            pids.remove(env_uuid);
+            Ok(Some(forced))
+        } else {
+            Ok(None)
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -156,8 +190,10 @@ impl JobManager {
         } else { Ok(None) }
     }
 
-    #[cfg(not(target_os = "windows"))]
-    pub async fn remove(&self, _env_uuid: &str) {}
+    #[cfg(unix)]
+    pub async fn remove(&self, env_uuid: &str) {
+        self.pids.write().await.remove(env_uuid);
+    }
 
     #[cfg(target_os = "windows")]
     pub async fn clear_all(&self) {
@@ -165,8 +201,84 @@ impl JobManager {
         jobs.clear();
     }
 
-    #[cfg(not(target_os = "windows"))]
-    pub async fn clear_all(&self) {}
+    /// 应用退出：Windows 靠 Job 对象 KILL_ON_JOB_CLOSE 带走浏览器，这里显式结束各进程组
+    #[cfg(unix)]
+    pub async fn clear_all(&self) {
+        let pids: Vec<i32> = self.pids.write().await.drain().map(|(_, pid)| pid).collect();
+        for pid in pids {
+            unix_process::kill_group(pid);
+        }
+    }
+}
+
+#[cfg(unix)]
+mod unix_process {
+    /// 进程是否已退出。先 waitpid 回收（浏览器是我们的子进程，不回收会一直是僵尸，
+    /// kill(pid, 0) 仍然成功）；已被别处回收（ECHILD）再用 kill(pid, 0) 判断。
+    pub fn has_exited(pid: i32) -> bool {
+        let mut status = 0;
+        let reaped = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+        if reaped == pid {
+            return true;
+        }
+        if reaped == 0 {
+            return false;
+        }
+        unsafe { libc::kill(pid, 0) != 0 }
+    }
+
+    pub async fn wait_for_exit(pid: i32, timeout: std::time::Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if has_exited(pid) {
+                return true;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    pub fn kill_group(pid: i32) {
+        unsafe {
+            // 进程组 id = 浏览器 pid；组不存在时退回只杀主进程
+            if libc::kill(-pid, libc::SIGKILL) != 0 {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use super::*;
+
+    fn spawn(script: &str) -> std::process::Child {
+        use std::os::unix::process::CommandExt;
+        std::process::Command::new("sh").arg("-c").arg(script).process_group(0).spawn().unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_browser_that_exits_by_itself_is_not_forced() {
+        let manager = JobManager::new();
+        let child = spawn("sleep 0.2");
+        manager.create_and_assign("env", child.id()).await.unwrap();
+        assert_eq!(manager.finish_process("env").await.unwrap(), Some(false));
+        assert!(manager.pids.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_hung_browser_is_killed_with_its_process_group() {
+        let manager = JobManager::new();
+        let child = spawn("sleep 30 & sleep 30");
+        manager.create_and_assign("env", child.id()).await.unwrap();
+        let result = manager
+            .finish_process_with_timeout("env", std::time::Duration::from_millis(50))
+            .await;
+        assert_eq!(result.unwrap(), Some(true));
+        assert_eq!(manager.finish_process("env").await.unwrap(), None);
+    }
 }
 
 #[cfg(all(test, target_os = "windows"))]

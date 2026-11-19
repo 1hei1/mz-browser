@@ -72,15 +72,85 @@ mod dpapi {
     }
 }
 
-/// 只支持 Windows 内核，其他平台不加密（保留明文，开发和测试用）。
+/// Linux/macOS（无桌面服务器）没有 DPAPI：用本机密钥文件做 AES-256-GCM。
+/// 密钥文件默认 `$HOME/.config/mz-browser/secret.key`（`MZ_SECRET_KEY_FILE` 可改），权限 0600，
+/// 第一次用到时生成。和 DPAPI 一样只防数据文件被单独拷走；密钥文件丢了旧密文就解不开。
+/// 密文格式：12 字节 nonce + 密文 + 16 字节标签；前缀沿用 `dpapi:v1:`（含义是"本机保护"）。
 #[cfg(not(windows))]
 mod dpapi {
-    pub fn encrypt(_plain: &[u8]) -> Result<Vec<u8>, String> {
-        Err("DPAPI is only available on Windows".into())
+    use ring::aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
+    use ring::rand::{SecureRandom, SystemRandom};
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+
+    fn key_path() -> PathBuf {
+        if let Some(path) = std::env::var_os("MZ_SECRET_KEY_FILE").filter(|p| !p.is_empty()) {
+            return PathBuf::from(path);
+        }
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        home.join(".config").join("mz-browser").join("secret.key")
     }
 
-    pub fn decrypt(_cipher: &[u8]) -> Result<Vec<u8>, String> {
-        Err("DPAPI is only available on Windows".into())
+    fn load_or_create_key() -> Result<[u8; 32], String> {
+        let path = key_path();
+        if let Ok(bytes) = std::fs::read(&path) {
+            return bytes
+                .try_into()
+                .map_err(|_| format!("secret key file {} is not 32 bytes", path.display()));
+        }
+        let mut key = [0u8; 32];
+        SystemRandom::new().fill(&mut key).map_err(|_| "random key generation failed".to_string())?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|e| format!("cannot create secret key file {}: {e}", path.display()))?;
+        file.write_all(&key).map_err(|e| e.to_string())?;
+        Ok(key)
+    }
+
+    fn key() -> Result<&'static LessSafeKey, String> {
+        static KEY: OnceLock<Result<LessSafeKey, String>> = OnceLock::new();
+        KEY.get_or_init(|| {
+            let raw = load_or_create_key()?;
+            UnboundKey::new(&AES_256_GCM, &raw)
+                .map(LessSafeKey::new)
+                .map_err(|_| "invalid AES key".to_string())
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+    }
+
+    pub fn encrypt(plain: &[u8]) -> Result<Vec<u8>, String> {
+        let key = key()?;
+        let mut nonce = [0u8; NONCE_LEN];
+        SystemRandom::new().fill(&mut nonce).map_err(|_| "random nonce failed".to_string())?;
+        let mut data = plain.to_vec();
+        key.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::empty(), &mut data)
+            .map_err(|_| "encryption failed".to_string())?;
+        let mut out = nonce.to_vec();
+        out.extend_from_slice(&data);
+        Ok(out)
+    }
+
+    pub fn decrypt(cipher: &[u8]) -> Result<Vec<u8>, String> {
+        if cipher.len() < NONCE_LEN + 16 {
+            return Err("ciphertext too short".into());
+        }
+        let key = key()?;
+        let (nonce, rest) = cipher.split_at(NONCE_LEN);
+        let nonce = Nonce::try_assume_unique_for_key(nonce).map_err(|_| "bad nonce".to_string())?;
+        let mut data = rest.to_vec();
+        let plain = key
+            .open_in_place(nonce, Aad::empty(), &mut data)
+            .map_err(|_| "decryption failed (wrong key?)".to_string())?;
+        Ok(plain.to_vec())
     }
 }
 
@@ -174,7 +244,7 @@ pub async fn encrypt_existing(pool: &Pool<Db>) -> Result<u64, Error> {
     Ok(updated)
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

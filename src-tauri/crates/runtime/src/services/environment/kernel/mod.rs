@@ -126,7 +126,7 @@ impl KernelRuntime {
     }
 
     pub async fn handle_browser_disconnect(&self, env_uuid: &str, events: EventPublisher) {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", unix))]
         {
             if let Some(manager) = crate::infrastructure::eventbus::get_eventbus_manager() {
                 if manager.is_connected(env_uuid).await { return; }
@@ -152,7 +152,7 @@ impl KernelRuntime {
                 self.status_manager.set_status(env_uuid, super::EnvironmentStatus::Error).await;
             }
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", unix)))]
         self.job_manager.remove(env_uuid).await;
         self.cdp_endpoint_manager.remove(env_uuid).await;
         self.status_manager.set_stopped_unless_error(env_uuid).await;

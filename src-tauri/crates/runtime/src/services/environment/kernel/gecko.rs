@@ -153,7 +153,7 @@ pub async fn launch_browser(
     }
     status_manager.set_status(&env_id, EnvironmentStatus::Starting).await;
     // 上一个进程可能还在退出、占着配置目录，等它走完再启动
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", unix))]
     if let Err(error) = job_manager.finish_process(&env_id).await {
         log::warn!("previous browser of {env_id} did not exit cleanly: {error}");
     }
@@ -531,9 +531,9 @@ fn watch_exit(
         if !removed {
             return; // 同一环境已经被 stop 清理过，或者已经重新启动
         }
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", unix))]
         let _ = job_manager.finish_process(&env_id).await;
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", unix)))]
         job_manager.remove(&env_id).await;
         cdp_endpoint_manager.remove(&env_id).await;
         status_manager.set_stopped_unless_error(&env_id).await;
@@ -564,9 +564,9 @@ pub async fn stop_environment(
         log_warn("kernel", format!("Firefox close request failed for {env_id}: {error}"));
     }
     drop(instance);
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", unix))]
     let forced = job_manager.finish_process(env_id).await?.unwrap_or(false);
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", unix)))]
     let forced = {
         job_manager.remove(env_id).await;
         false

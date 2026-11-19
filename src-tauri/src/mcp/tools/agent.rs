@@ -82,6 +82,25 @@ impl AsyncTool<McpServer> for ListAuthorized {
     async fn invoke(service: &McpServer, _: Self::Parameter) -> Result<ReadOutput, McpToolError> {
         service.require_session().await?;
         let mut items = vec![];
+        if service.config().access.allow_all_environments {
+            // 无界面服务器模式：所有环境都已授权，直接列出（最多 200 个）
+            let list = service
+                .bridge()
+                .list_environments(crate::mcp::bridge::LocalApiListEnvironmentsRequest {
+                    page: 1,
+                    page_size: 200,
+                    filters: None,
+                })
+                .await?;
+            for item in list.items {
+                let env = item.environment;
+                items.push(serde_json::json!({"uuid": env.uuid, "name": env.name, "status": env.status}));
+            }
+            service.require_session().await?;
+            return Ok(ReadOutput {
+                data: serde_json::json!({"items": items, "all_environments_authorized": true}),
+            });
+        }
         for id in &service.config().access.allowed_environment_uuids {
             service.require_environment(id).await?;
             let detail = service.bridge().get_environment(id).await?;

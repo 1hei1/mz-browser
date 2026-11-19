@@ -1,0 +1,112 @@
+name: build-linux
+
+# Fork 专用：Linux x64 版（给无桌面服务器上的 agent 用，见 docs/linux-headless.md）。
+# - 推送到 fork-build：编译 .deb 作为 Artifact。
+# - 推送 v* 标签：和 build-x64 一起把 .deb 传到同一个 Release。
+on:
+  push:
+    branches: [fork-build]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # 22.04 的 glibc 较老，打出来的包在 22.04/24.04/Debian 12+ 都能装
+    runs-on: ubuntu-22.04
+    env:
+      ENV_NAME: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages (webkit2gtk 4.1 等)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libgtk-3-dev libsoup-3.0-dev patchelf build-essential curl file
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust tests (runtime / business)
+        working-directory: src-tauri
+        env:
+          MZ_SECRET_KEY_FILE: ${{ runner.temp }}/mz-test-secret.key
+        run: cargo test -p runtime --lib
+
+      - name: Prepare signing key and config
+        env:
+          SECRET_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          SECRET_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          SECRET_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -n "$SECRET_PRIVATE_KEY" ] && [ -n "$SECRET_PUBLIC_KEY" ]; then
+            priv="$SECRET_PRIVATE_KEY"; pass="$SECRET_KEY_PASSWORD"; pub="$SECRET_PUBLIC_KEY"
+          else
+            key="$RUNNER_TEMP/mz-temp.key"; pass="mz-temp-$(openssl rand -hex 16)"
+            npx --yes @tauri-apps/cli@2.9.6 signer generate --ci -f -w "$key" -p "$pass"
+            priv="$(cat "$key")"; pub="$(cat "$key.pub")"
+            echo "::warning::未配置更新签名密钥，已使用一次性密钥"
+          fi
+          echo "::add-mask::$pass"
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY<<EOF_KEY"; echo "$priv"; echo "EOF_KEY"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$pass"
+            echo "TAURI_UPDATER_PUBLIC_KEY<<EOF_KEY"; echo "$pub"; echo "EOF_KEY"
+          } >> "$GITHUB_ENV"
+          node deploy/prepare-version.mjs
+          node -e "
+            const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));
+            c.bundle.targets=['deb'];
+            c.plugins.updater.endpoints=['https://github.com/'+process.env.REPOSITORY+'/releases/latest/download/latest.json'];
+            if (process.env.TAURI_UPDATER_PUBLIC_KEY) c.plugins.updater.pubkey=process.env.TAURI_UPDATER_PUBLIC_KEY.trim();
+            c.bundle.linux=Object.assign({},c.bundle.linux,{deb:{depends:['xvfb','xauth','libnss3','libgbm1','libasound2 | libasound2t64','fonts-liberation']}});
+            fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');"
+
+      - name: Build (artifact only)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: tauri-apps/tauri-action@v1
+        with:
+          projectPath: .
+          tauriScript: npx --yes @tauri-apps/cli@2.9.6
+          args: --features production --bundles deb
+
+      - name: Build and publish release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tauriScript: npx --yes @tauri-apps/cli@2.9.6
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: false
+          args: --features production --bundles deb
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mz-browser-linux-deb
+          path: src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error

@@ -6,6 +6,37 @@ use super::gpu_ids::GPU_DEVICE_IDS;
 use super::kernel::get_window_info;
 
 pub(super) fn build_fingerprint_config(config: Option<&Value>) -> FingerprintConfig {
+    let config = build_fingerprint_config_inner(config);
+    #[cfg(target_os = "linux")]
+    let config = with_server_gpu_defaults(config, std::env::var("MZ_BROWSER_GPU").ok());
+    config
+}
+
+/// Linux 服务器默认用 SwiftShader 软件渲染，真实的 WebGL 厂商/渲染器是
+/// "Google Inc. (Google) / ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device ...))"，
+/// 一眼就是无头/虚拟机。环境没有自己设置显卡信息时，换成常见的 Linux 核显（Mesa）。
+/// 用真实 GPU（MZ_BROWSER_GPU=1）时不动。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn with_server_gpu_defaults(mut config: FingerprintConfig, gpu: Option<String>) -> FingerprintConfig {
+    let real_gpu = gpu.is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes"));
+    let unset = config.webgl_vendor.as_deref().map_or(true, str::is_empty)
+        && config.webgl_renderer.as_deref().map_or(true, str::is_empty);
+    if real_gpu || !unset || config.webgl_info.as_deref() == Some("real") {
+        return config;
+    }
+    config.webgl_info = Some("custom".to_string());
+    config.webgl_vendor = Some(SERVER_WEBGL_VENDOR.to_string());
+    config.webgl_renderer = Some(SERVER_WEBGL_RENDERER.to_string());
+    if config.webgpu.is_none() {
+        config.webgpu = Some("webgl-match".to_string());
+    }
+    config
+}
+
+const SERVER_WEBGL_VENDOR: &str = "Google Inc. (Intel)";
+const SERVER_WEBGL_RENDERER: &str = "ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL 4.6)";
+
+fn build_fingerprint_config_inner(config: Option<&Value>) -> FingerprintConfig {
     let window_info = get_window_info(config);
     let basic_settings = get_object(config, "basic_settings");
     let fingerprint_settings = get_object(config, "fingerprint_settings");
@@ -249,6 +280,27 @@ pub(super) fn with_device_id(renderer: &str) -> String {
     match GPU_DEVICE_IDS.binary_search_by(|(name, _)| (*name).cmp(key.as_str())) {
         Ok(index) => format!("{} (0x{:08X}){}", &renderer[..d3d], GPU_DEVICE_IDS[index].1, &renderer[d3d..]),
         Err(_) => renderer.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod server_gpu_tests {
+    use super::{build_fingerprint_config_inner, with_server_gpu_defaults};
+
+    #[test]
+    fn unset_gpu_strings_become_a_common_mesa_igpu_on_software_rendering() {
+        let config = with_server_gpu_defaults(build_fingerprint_config_inner(None), None);
+        assert_eq!(config.webgl_info.as_deref(), Some("custom"));
+        assert!(config.webgl_renderer.unwrap().contains("Mesa Intel"));
+    }
+
+    #[test]
+    fn configured_or_real_gpu_is_left_alone() {
+        let config = with_server_gpu_defaults(build_fingerprint_config_inner(None), Some("1".into()));
+        assert_eq!(config.webgl_renderer, None);
+        let value = serde_json::json!({"fingerprint_settings": {"webglVendor": "V", "webglRenderer": "R", "webglInfo": "custom"}});
+        let config = with_server_gpu_defaults(build_fingerprint_config_inner(Some(&value)), None);
+        assert_eq!(config.webgl_renderer.as_deref(), Some("R"));
     }
 }
 

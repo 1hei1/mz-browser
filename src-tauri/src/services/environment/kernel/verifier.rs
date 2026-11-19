@@ -120,6 +120,11 @@ pub fn verify_kernel(
 /// 核心 DLL 所在的目录：Chromium 在版本子目录里，Firefox 直接在内核根目录
 pub fn find_core_dll_dir(kernel_dir: &Path, engine: KernelEngine) -> Result<PathBuf> {
     match engine {
+        // Linux 包没有版本子目录，主程序 mz 本身就是"核心库"
+        #[cfg(not(target_os = "windows"))]
+        KernelEngine::Chromium if kernel_dir.join(core_dll_name(engine)).is_file() => {
+            Ok(kernel_dir.to_path_buf())
+        }
         KernelEngine::Chromium => find_version_subdir(kernel_dir),
         KernelEngine::Gecko if kernel_dir.join(core_dll_name(engine)).is_file() => {
             Ok(kernel_dir.to_path_buf())
