@@ -268,12 +268,75 @@ pub async fn click_at(
     x: f64,
     y: f64,
 ) -> Result<Value, McpToolError> {
-    if !x.is_finite() || !y.is_finite() || !(0.0..=20000.0).contains(&x) || !(0.0..=20000.0).contains(&y) {
+    if !valid_point(x, y) {
         return Err(invalid("x and y must be viewport coordinates in CSS pixels"));
     }
     let (page, session) = attach_authorized(conn, origins, page_id).await?;
     bring_to_front(conn, &session).await;
     mouse_click(conn, &session, x, y).await?;
+    current_state(conn, origins, &page.target_id).await
+}
+
+fn valid_point(x: f64, y: f64) -> bool {
+    x.is_finite() && y.is_finite() && (0.0..=20000.0).contains(&x) && (0.0..=20000.0).contains(&y)
+}
+
+/// 拖拽轨迹：缓入缓出、带一点弧度和抖动，终点精确落在目标上。
+fn drag_path(from: (f64, f64), to: (f64, f64), steps: usize) -> Vec<(f64, f64)> {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let len = (dx * dx + dy * dy).sqrt().max(1.0);
+    // 垂直方向的弧度，最多偏离距离的 8%
+    let bow = rng.random_range(-0.08..0.08) * len;
+    let (nx, ny) = (-dy / len, dx / len);
+    (1..=steps)
+        .map(|i| {
+            let t = i as f64 / steps as f64;
+            let e = t * t * (3.0 - 2.0 * t);
+            let arc = (std::f64::consts::PI * t).sin() * bow;
+            if i == steps {
+                return to;
+            }
+            let jitter = if t > 0.1 && t < 0.9 { 1.0 } else { 0.3 };
+            (
+                from.0 + dx * e + nx * arc + rng.random_range(-jitter..jitter),
+                from.1 + dy * e + ny * arc + rng.random_range(-jitter..jitter),
+            )
+        })
+        .collect()
+}
+
+/// Fork 新增：按住左键从一点拖到另一点（视口 CSS 像素），用于滑块、拖拽类挑战。
+pub async fn drag(
+    conn: &mut CdpConnection,
+    origins: &[String],
+    page_id: &str,
+    from: (f64, f64),
+    to: (f64, f64),
+    duration_ms: u64,
+) -> Result<Value, McpToolError> {
+    if !valid_point(from.0, from.1) || !valid_point(to.0, to.1) {
+        return Err(invalid("Coordinates must be viewport CSS pixels"));
+    }
+    let duration_ms = duration_ms.clamp(100, 5000);
+    let (page, session) = attach_authorized(conn, origins, page_id).await?;
+    bring_to_front(conn, &session).await;
+    let mouse = |kind: &str, (x, y): (f64, f64), button: &str, buttons: u32| {
+        json!({ "type": kind, "x": x, "y": y, "button": button, "buttons": buttons, "clickCount": if kind == "mouseMoved" { 0 } else { 1 } })
+    };
+    conn.send("Input.dispatchMouseEvent", mouse("mouseMoved", from, "none", 0), Some(&session)).await?;
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    conn.send("Input.dispatchMouseEvent", mouse("mousePressed", from, "left", 1), Some(&session)).await?;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let steps = ((duration_ms / 16) as usize).clamp(8, 120);
+    let pause = std::time::Duration::from_millis(duration_ms / steps as u64);
+    for point in drag_path(from, to, steps) {
+        conn.send("Input.dispatchMouseEvent", mouse("mouseMoved", point, "left", 1), Some(&session)).await?;
+        tokio::time::sleep(pause).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    conn.send("Input.dispatchMouseEvent", mouse("mouseReleased", to, "left", 0), Some(&session)).await?;
     current_state(conn, origins, &page.target_id).await
 }
 
@@ -304,6 +367,16 @@ pub async fn screenshot(
     // 图片像素坐标乘以 scale 就是 mz_browser_click_at 的坐标
     state["scale"] = json!(scale);
     Ok(state)
+}
+
+#[cfg(test)]
+mod drag_tests {
+    #[test]
+    fn drag_path_ends_exactly_on_target() {
+        let path = super::drag_path((10.0, 10.0), (300.0, 40.0), 30);
+        assert_eq!(path.len(), 30);
+        assert_eq!(*path.last().unwrap(), (300.0, 40.0));
+    }
 }
 
 fn png_size(data: &str) -> Option<(u32, u32)> {

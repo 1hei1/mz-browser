@@ -22,6 +22,7 @@ struct Type;
 struct PressKey;
 struct ReadField;
 struct ClickAt;
+struct Drag;
 
 pub fn routes() -> Vec<ToolRoute<McpServer>> {
     ToolRouter::new()
@@ -31,6 +32,7 @@ pub fn routes() -> Vec<ToolRoute<McpServer>> {
         .with_async_tool::<Type>()
         .with_async_tool::<PressKey>()
         .with_async_tool::<ClickAt>()
+        .with_async_tool::<Drag>()
         .with_route(screenshot_route())
         .into_iter()
         .collect()
@@ -121,6 +123,25 @@ pub struct ClickAtInput {
 }
 
 #[derive(Default, Deserialize, JsonSchema)]
+pub struct DragInput {
+    /// Environment UUID (must be authorized).
+    pub env_uuid: String,
+    /// Page id from mz_browser_tabs.
+    pub page_id: String,
+    /// Start point x in viewport CSS pixels.
+    pub from_x: f64,
+    /// Start point y in viewport CSS pixels.
+    pub from_y: f64,
+    /// End point x in viewport CSS pixels.
+    pub to_x: f64,
+    /// End point y in viewport CSS pixels.
+    pub to_y: f64,
+    /// How long the move takes, 100 to 5000 ms (default 700).
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Default, Deserialize, JsonSchema)]
 pub struct ScreenshotInput {
     /// Environment UUID (must be authorized).
     pub env_uuid: String,
@@ -186,6 +207,31 @@ impl AsyncTool<McpServer> for ClickAt {
     async fn invoke(service: &McpServer, i: Self::Parameter) -> Result<ReadOutput, McpToolError> {
         check_ids(&i.page_id, "0")?;
         let data = browser::act(service, &i.env_uuid, ActOp::ClickAt { page_id: &i.page_id, x: i.x, y: i.y }).await?;
+        Ok(ReadOutput { data })
+    }
+}
+
+act_tool!(
+    Drag,
+    DragInput,
+    "mz_browser_drag",
+    "Press the left button at one point of the visible page, move along a human-like path to another point and release (sliders, drag-and-drop puzzles). Coordinates are viewport CSS pixels, as for mz_browser_click_at."
+);
+
+impl AsyncTool<McpServer> for Drag {
+    async fn invoke(service: &McpServer, i: Self::Parameter) -> Result<ReadOutput, McpToolError> {
+        check_ids(&i.page_id, "0")?;
+        let data = browser::act(
+            service,
+            &i.env_uuid,
+            ActOp::Drag {
+                page_id: &i.page_id,
+                from: (i.from_x, i.from_y),
+                to: (i.to_x, i.to_y),
+                duration_ms: i.duration_ms.unwrap_or(700),
+            },
+        )
+        .await?;
         Ok(ReadOutput { data })
     }
 }
