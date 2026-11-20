@@ -249,7 +249,7 @@ async fn top_contexts(page: &mut BidiPage) -> Result<Vec<Context>, McpToolError>
 fn assert_frames(children: &[Value], origins: &[String]) -> Result<(), McpToolError> {
     for child in children {
         let url = child.get("url").and_then(Value::as_str).unwrap_or("");
-        if !authorized_url(url, origins) {
+        if !super::cdp::authorized_child_frame_url(url, origins) {
             return Err(upstream(code::FRAME_NOT_AUTHORIZED));
         }
         if let Some(grandchildren) = child.get("children").and_then(Value::as_array) {
@@ -596,5 +596,7 @@ mod tests {
         assert!(assert_frames(&ok, &[]).is_ok());
         let nested = vec![json!({ "url": "https://example.com/a", "children": [{ "url": "file:///c:/x" }] })];
         assert!(assert_frames(&nested, &[]).is_err());
+        let blank = vec![json!({ "url": "about:blank", "children": [] })];
+        assert!(assert_frames(&blank, &[]).is_ok());
     }
 }

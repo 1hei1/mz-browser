@@ -457,10 +457,30 @@ pub(super) fn assert_frames(tree: &Value, origins: &[String]) -> Result<(), McpT
     if !authorized_url(url, origins) {
         return Err(err(code::FRAME_NOT_AUTHORIZED));
     }
+    assert_child_frames(tree, origins)
+}
+
+fn assert_child_frames(tree: &Value, origins: &[String]) -> Result<(), McpToolError> {
     for child in tree.get("childFrames").and_then(Value::as_array).into_iter().flatten() {
-        assert_frames(child, origins)?;
+        let url = child.get("frame").and_then(|f| f.get("url")).and_then(Value::as_str).unwrap_or("");
+        if !authorized_child_frame_url(url, origins) {
+            return Err(err(code::FRAME_NOT_AUTHORIZED));
+        }
+        assert_child_frames(child, origins)?;
     }
     Ok(())
+}
+
+/// Fork 新增：iframe 除了 http(s) 页面，还允许页面自己生成的 about:blank / about:srcdoc /
+/// data: / blob: 框架（广告位、检测站常见），它们继承父页面，不会是 file:// 或 chrome:// 页面。
+/// 之前一律拒绝，browserleaks 这类站整页读不了（FRAME_ORIGIN_NOT_AUTHORIZED）。
+pub fn authorized_child_frame_url(value: &str, origins: &[String]) -> bool {
+    let value = value.trim();
+    value.is_empty()
+        || value.starts_with("about:")
+        || value.starts_with("data:")
+        || value.starts_with("blob:")
+        || authorized_url(value, origins)
 }
 
 pub async fn list_tabs(conn: &mut CdpConnection, origins: &[String]) -> Result<Value, McpToolError> {
@@ -759,6 +779,16 @@ mod tests {
         let mut conn = CdpConnection::connect_validated(&url).await.unwrap();
         let denied = snapshot(&mut conn, &origins(), "A").await;
         assert!(matches!(denied, Err(McpToolError::Upstream(m)) if m == code::FRAME_NOT_AUTHORIZED));
+    }
+
+    #[test]
+    fn page_generated_iframes_are_allowed() {
+        assert!(authorized_child_frame_url("about:blank", &[]));
+        assert!(authorized_child_frame_url("about:srcdoc", &[]));
+        assert!(authorized_child_frame_url("blob:https://example.com/1", &[]));
+        assert!(authorized_child_frame_url("", &[]));
+        assert!(!authorized_child_frame_url("file:///etc/passwd", &[]));
+        assert!(!authorized_child_frame_url("chrome://settings", &[]));
     }
 
     #[tokio::test]
