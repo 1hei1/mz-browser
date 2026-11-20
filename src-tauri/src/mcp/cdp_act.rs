@@ -323,7 +323,8 @@ pub async fn drag(
     let (page, session) = attach_authorized(conn, origins, page_id).await?;
     bring_to_front(conn, &session).await;
     let mouse = |kind: &str, (x, y): (f64, f64), button: &str, buttons: u32| {
-        json!({ "type": kind, "x": x, "y": y, "button": button, "buttons": buttons, "clickCount": if kind == "mouseMoved" { 0 } else { 1 } })
+        let clicks = u32::from(kind != "mouseMoved");
+        json!({ "type": kind, "x": x, "y": y, "button": button, "buttons": buttons, "clickCount": clicks })
     };
     conn.send("Input.dispatchMouseEvent", mouse("mouseMoved", from, "none", 0), Some(&session)).await?;
     tokio::time::sleep(std::time::Duration::from_millis(80)).await;
