@@ -63,6 +63,9 @@ pub(crate) enum ActOp<'a> {
     Type { page_id: &'a str, node_id: &'a str, text: &'a str, clear: bool, submit: bool },
     PressKey { page_id: &'a str, key: &'a str },
     ReadField { page_id: &'a str, node_id: &'a str },
+    /// Fork 新增：按视口坐标点击、可见区域截图
+    ClickAt { page_id: &'a str, x: f64, y: f64 },
+    Screenshot { page_id: &'a str },
 }
 
 impl ActOp<'_> {
@@ -74,6 +77,8 @@ impl ActOp<'_> {
             Self::Type { .. } => "type",
             Self::PressKey { .. } => "press_key",
             Self::ReadField { .. } => "read_field",
+            Self::ClickAt { .. } => "click_at",
+            Self::Screenshot { .. } => "screenshot",
         }
     }
 }
@@ -117,6 +122,9 @@ pub(crate) async fn act(
                 }
                 ActOp::PressKey { page_id, key } => bidi_page::press_key(&mut page, origins, page_id, key).await,
                 ActOp::ReadField { page_id, node_id } => bidi_page::read_field(&mut page, origins, page_id, node_id).await,
+                ActOp::ClickAt { .. } | ActOp::Screenshot { .. } => {
+                    Err(McpToolError::invalid_params("Not supported for Firefox environments"))
+                }
             };
             page.close().await;
             result
@@ -151,6 +159,8 @@ pub(crate) async fn act(
             ActOp::ReadField { page_id, node_id } => {
                 cdp_act::read_field(&mut conn, origins, page_id, node_id).await
             }
+            ActOp::ClickAt { page_id, x, y } => cdp_act::click_at(&mut conn, origins, page_id, x, y).await,
+            ActOp::Screenshot { page_id } => cdp_act::screenshot(&mut conn, origins, page_id).await,
         };
         conn.close().await;
         result

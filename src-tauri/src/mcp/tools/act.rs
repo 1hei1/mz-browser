@@ -21,6 +21,7 @@ struct Click;
 struct Type;
 struct PressKey;
 struct ReadField;
+struct ClickAt;
 
 pub fn routes() -> Vec<ToolRoute<McpServer>> {
     ToolRouter::new()
@@ -29,6 +30,8 @@ pub fn routes() -> Vec<ToolRoute<McpServer>> {
         .with_async_tool::<Click>()
         .with_async_tool::<Type>()
         .with_async_tool::<PressKey>()
+        .with_async_tool::<ClickAt>()
+        .with_route(screenshot_route())
         .into_iter()
         .collect()
 }
@@ -105,6 +108,26 @@ pub struct ReadFieldInput {
     pub node_id: String,
 }
 
+#[derive(Default, Deserialize, JsonSchema)]
+pub struct ClickAtInput {
+    /// Environment UUID (must be authorized).
+    pub env_uuid: String,
+    /// Page id from mz_browser_tabs.
+    pub page_id: String,
+    /// Viewport x in CSS pixels (screenshot pixel x times its `scale`).
+    pub x: f64,
+    /// Viewport y in CSS pixels (screenshot pixel y times its `scale`).
+    pub y: f64,
+}
+
+#[derive(Default, Deserialize, JsonSchema)]
+pub struct ScreenshotInput {
+    /// Environment UUID (must be authorized).
+    pub env_uuid: String,
+    /// Page id from mz_browser_tabs.
+    pub page_id: String,
+}
+
 macro_rules! act_tool {
     ($tool:ty, $param:ty, $name:literal, $description:literal) => {
         impl ToolBase for $tool {
@@ -151,6 +174,55 @@ act_tool!(
     "mz_browser_press_key",
     "Press one allowed key (Enter, Tab, Escape, arrows, paging keys, Backspace, Delete) in an authorized page."
 );
+
+act_tool!(
+    ClickAt,
+    ClickAtInput,
+    "mz_browser_click_at",
+    "Click at a point of the visible page (CSS pixels from the top-left of the viewport). Use with mz_browser_screenshot: multiply the image pixel coordinates by its `scale`. Works across iframes, including cross-origin ones."
+);
+
+impl AsyncTool<McpServer> for ClickAt {
+    async fn invoke(service: &McpServer, i: Self::Parameter) -> Result<ReadOutput, McpToolError> {
+        check_ids(&i.page_id, "0")?;
+        let data = browser::act(service, &i.env_uuid, ActOp::ClickAt { page_id: &i.page_id, x: i.x, y: i.y }).await?;
+        Ok(ReadOutput { data })
+    }
+}
+
+const SCREENSHOT_DESCRIPTION: &str = "Capture the visible part of an authorized page as a PNG image (shows what a person sees, including iframes such as captchas). The text part gives imageWidth/imageHeight, viewportWidth/viewportHeight and `scale`; image pixel coordinates times `scale` are the coordinates for mz_browser_click_at.";
+
+/// Fork 新增：截图要以 MCP 图片内容返回（模型能直接看），所以不用 AsyncTool 的 JSON 输出，手写路由。
+fn screenshot_route() -> ToolRoute<McpServer> {
+    use rmcp::model::Tool;
+    let attr = Tool::new(
+        "mz_browser_screenshot",
+        SCREENSHOT_DESCRIPTION,
+        rmcp::handler::server::common::schema_for_type::<ScreenshotInput>(),
+    );
+    ToolRoute::new_dyn(attr, screenshot_call)
+}
+
+fn screenshot_call(
+    context: rmcp::handler::server::tool::ToolCallContext<'_, McpServer>,
+) -> futures::future::BoxFuture<'_, Result<rmcp::model::CallToolResult, rmcp::ErrorData>> {
+    use rmcp::model::{CallToolResult, Content};
+    Box::pin(async move {
+        let input: ScreenshotInput =
+            serde_json::from_value(serde_json::Value::Object(context.arguments.clone().unwrap_or_default()))
+                .map_err(|e| rmcp::ErrorData::invalid_params(e.to_string(), None))?;
+        check_ids(&input.page_id, "0").map_err(rmcp::ErrorData::from)?;
+        let mut data = browser::act(context.service, &input.env_uuid, ActOp::Screenshot { page_id: &input.page_id })
+            .await
+            .map_err(rmcp::ErrorData::from)?;
+        let image = data
+            .as_object_mut()
+            .and_then(|o| o.remove("image"))
+            .and_then(|v| v.as_str().map(ToOwned::to_owned))
+            .unwrap_or_default();
+        Ok(CallToolResult::success(vec![Content::image(image, "image/png"), Content::text(data.to_string())]))
+    })
+}
 
 act_tool!(
     ReadField,

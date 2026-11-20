@@ -533,12 +533,136 @@ pub async fn snapshot(
         return Err(err(code::PAGE_CHANGED));
     }
     let nodes = ax.get("nodes").and_then(Value::as_array).cloned().unwrap_or_default();
+    let full = conn.full_access;
+    let mut frames = Vec::new();
+    for frame in child_frames(conn, origins, &session, &tree).await {
+        // iframe 读不到（刚被移除、还在加载）就跳过，不影响主页面
+        let Ok((_, frame_nodes, frame_secrets)) = frame_ax(conn, &session, &frame, &secrets).await else {
+            continue;
+        };
+        frames.push(json!({
+            "frameId": frame.frame_id,
+            "url": public_url(&frame.url),
+            "crossOrigin": frame.oopif,
+            "nodes": prefix_ids(summarize_nodes_with(&frame_nodes, full, &frame_secrets), &frame.frame_id),
+            "truncated": frame_nodes.len() > MAX_SNAPSHOT_NODES,
+        }));
+    }
     Ok(json!({
         "pageId": page.target_id,
         "url": public_url(final_url),
-        "nodes": summarize_nodes_with(&nodes, conn.full_access, &secrets),
+        "nodes": summarize_nodes_with(&nodes, full, &secrets),
         "truncated": nodes.len() > MAX_SNAPSHOT_NODES,
+        "frames": frames,
     }))
+}
+
+/// Fork 新增：页面里的 iframe 也进快照，包括跨域 iframe（站点隔离下是独立的 OOPIF 目标，
+/// 例如 hCaptcha / reCAPTCHA 的复选框和挑战框）。元素 id 写成 `<frameId>:<节点 id>`，
+/// 点击、输入工具按这个前缀找到对应的 iframe。
+pub const MAX_FRAMES: usize = 8;
+
+#[derive(Debug, Clone)]
+pub(super) struct FrameRef {
+    pub frame_id: String,
+    pub url: String,
+    /// 跨进程 iframe（有自己的 CDP 目标）
+    pub oopif: bool,
+}
+
+/// 页面里能读的 iframe：同进程的来自页面 frame 树，跨进程的来自 iframe 目标，
+/// 并用 DOM.getFrameOwner 确认它确实挂在这个页面上。只收 http(s) 页面。
+pub(super) async fn child_frames(
+    conn: &mut CdpConnection,
+    origins: &[String],
+    session: &str,
+    tree: &Value,
+) -> Vec<FrameRef> {
+    let mut frames: Vec<FrameRef> = Vec::new();
+    fn walk(node: &Value, origins: &[String], out: &mut Vec<FrameRef>) {
+        for child in node.get("childFrames").and_then(Value::as_array).into_iter().flatten() {
+            let frame = child.get("frame").unwrap_or(&Value::Null);
+            let id = frame.get("id").and_then(Value::as_str).unwrap_or("");
+            let url = frame.get("url").and_then(Value::as_str).unwrap_or("");
+            if !id.is_empty() && authorized_url(url, origins) {
+                out.push(FrameRef { frame_id: id.to_string(), url: url.to_string(), oopif: false });
+            }
+            walk(child, origins, out);
+        }
+    }
+    walk(tree.get("frameTree").unwrap_or(&Value::Null), origins, &mut frames);
+    let _ = conn.send("DOM.enable", json!({}), Some(session)).await;
+    if let Ok(targets) = conn.send("Target.getTargets", json!({}), None).await {
+        for target in targets.get("targetInfos").and_then(Value::as_array).cloned().unwrap_or_default() {
+            if target.get("type").and_then(Value::as_str) != Some("iframe") {
+                continue;
+            }
+            let (Some(id), Some(url)) = (
+                target.get("targetId").and_then(Value::as_str),
+                target.get("url").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            if !authorized_url(url, origins) {
+                continue;
+            }
+            // 跨进程 iframe 的目标 id 就是它的 frame id；不属于这个页面时这里会失败
+            if conn.send("DOM.getFrameOwner", json!({ "frameId": id }), Some(session)).await.is_err() {
+                continue;
+            }
+            frames.retain(|f| f.frame_id != id);
+            frames.push(FrameRef { frame_id: id.to_string(), url: url.to_string(), oopif: true });
+        }
+    }
+    frames.truncate(MAX_FRAMES);
+    frames
+}
+
+/// 读一个 iframe 的无障碍树。返回 (执行会话, 节点, 敏感字段)；跨进程 iframe 会新附加一个会话。
+pub(super) async fn frame_ax(
+    conn: &mut CdpConnection,
+    session: &str,
+    frame: &FrameRef,
+    page_secrets: &HashSet<u64>,
+) -> Result<(String, Vec<Value>, HashSet<u64>), McpToolError> {
+    let (exec, params, secrets) = if frame.oopif {
+        let attached = conn
+            .send("Target.attachToTarget", json!({ "targetId": frame.frame_id, "flatten": true }), None)
+            .await?;
+        let exec = attached
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| err(code::COMMAND_FAILED))?
+            .to_string();
+        let secrets = secret_backend_ids(conn, &exec).await?;
+        (exec, json!({ "depth": 8 }), secrets)
+    } else {
+        (session.to_string(), json!({ "depth": 8, "frameId": frame.frame_id }), page_secrets.clone())
+    };
+    let ax = conn.send("Accessibility.getFullAXTree", params, Some(&exec)).await?;
+    let nodes = ax.get("nodes").and_then(Value::as_array).cloned().unwrap_or_default();
+    Ok((exec, nodes, secrets))
+}
+
+/// `<frameId>:<节点 id>` 拆成 (frame, 节点)；主页面元素没有前缀。
+pub fn split_frame_node(id: &str) -> (Option<&str>, &str) {
+    match id.split_once(':') {
+        Some((frame, node)) if !frame.is_empty() && !node.is_empty() => (Some(frame), node),
+        _ => (None, id),
+    }
+}
+
+fn prefix_ids(mut entries: Vec<Value>, frame_id: &str) -> Vec<Value> {
+    let prefixed = |v: &Value| json!(format!("{frame_id}:{}", v.as_str().unwrap_or("")));
+    for entry in &mut entries {
+        if let Some(id) = entry.get("id") {
+            entry["id"] = prefixed(id);
+        }
+        if let Some(children) = entry.get("children").and_then(Value::as_array) {
+            entry["children"] = Value::Array(children.iter().map(prefixed).collect());
+        }
+    }
+    entries
 }
 
 /// Connects, runs `tabs` (when `page_id` is `None`) or `snapshot`, then detaches.
@@ -779,6 +903,15 @@ mod tests {
         let mut conn = CdpConnection::connect_validated(&url).await.unwrap();
         let denied = snapshot(&mut conn, &origins(), "A").await;
         assert!(matches!(denied, Err(McpToolError::Upstream(m)) if m == code::FRAME_NOT_AUTHORIZED));
+    }
+
+    #[test]
+    fn frame_node_ids_carry_the_frame() {
+        assert_eq!(split_frame_node("ABC:12"), (Some("ABC"), "12"));
+        assert_eq!(split_frame_node("12"), (None, "12"));
+        let out = prefix_ids(vec![json!({"id":"5","children":["6"]})], "F");
+        assert_eq!(out[0]["id"], "F:5");
+        assert_eq!(out[0]["children"][0], "F:6");
     }
 
     #[test]

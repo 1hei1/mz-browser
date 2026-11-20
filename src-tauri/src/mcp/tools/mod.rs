@@ -59,14 +59,14 @@ mod tests {
         assert_eq!(names(&access).len(), 4);
         access.act_tools_enabled = true;
         let act = names(&access);
-        assert_eq!(act.len(), 9);
+        assert_eq!(act.len(), 11);
         assert!(act.contains(&"mz_browser_click".to_string()));
         assert!(!act.iter().any(|n| n.starts_with("mz_create") || n.starts_with("mz_delete")));
 
         // the highest tier adds exactly the field-read tool, and only on top of page actions
         access.full_page_access_enabled = true;
         let full = names(&access);
-        assert_eq!(full.len(), 10);
+        assert_eq!(full.len(), 12);
         assert!(full.contains(&"mz_browser_read_field".to_string()));
         access.full_page_access_enabled = false;
         assert!(!names(&access).contains(&"mz_browser_read_field".to_string()));

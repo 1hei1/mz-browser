@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use serde_json::{Value, json};
 
 use super::cdp::{
-    CdpConnection, PageInfo, assert_frames, authorized_pages, authorized_url, blocked_ids, code, is_secret_node, secret_backend_ids,
+    CdpConnection, PageInfo, assert_frames, child_frames, frame_ax, split_frame_node, authorized_pages, authorized_url, blocked_ids, code, is_secret_node, secret_backend_ids,
     node_ident, node_is_editable, public_url, truncate,
 };
 use super::error::McpToolError;
@@ -146,6 +146,16 @@ async fn find_node(
         .send("Accessibility.getFullAXTree", json!({ "depth": 8 }), Some(session))
         .await?;
     let nodes = ax.get("nodes").and_then(Value::as_array).cloned().unwrap_or_default();
+    pick_node(conn, nodes, &secrets, node_id)
+}
+
+fn pick_node(
+    conn: &CdpConnection,
+    nodes: Vec<Value>,
+    secrets: &HashSet<u64>,
+    node_id: &str,
+) -> Result<(Value, u64, bool), McpToolError> {
+    let secrets = secrets.clone();
     // the highest tier may act on secret fields and fields with content
     let blocked: HashSet<String> =
         if conn.full_access() { HashSet::new() } else { blocked_ids(&nodes, &secrets) };
@@ -162,6 +172,150 @@ async fn find_node(
         .ok_or_else(|| invalid("Element cannot be targeted"))?;
     let secret = is_secret_node(&node, &secrets);
     Ok((node, backend, secret))
+}
+
+/// Fork 新增：快照里的元素可能在 iframe 里（id 形如 `<frameId>:<节点 id>`）。
+/// DOM 操作在元素所在的会话里做；鼠标、键盘事件始终发给页面主会话，
+/// 跨进程 iframe 的坐标要加上 iframe 元素在页面里的位置。
+struct Target {
+    /// 元素所在的会话（主页面或跨进程 iframe）
+    exec: String,
+    node: Value,
+    backend: u64,
+    secret: bool,
+    /// 跨进程 iframe 在主页面里的 <iframe> 元素
+    owner: Option<u64>,
+}
+
+async fn resolve(
+    conn: &mut CdpConnection,
+    origins: &[String],
+    session: &str,
+    node_id: &str,
+) -> Result<Target, McpToolError> {
+    let (frame_id, inner) = split_frame_node(node_id);
+    let Some(frame_id) = frame_id else {
+        let (node, backend, secret) = find_node(conn, session, node_id).await?;
+        return Ok(Target { exec: session.to_string(), node, backend, secret, owner: None });
+    };
+    let tree = conn.send("Page.getFrameTree", json!({}), Some(session)).await?;
+    let frame = child_frames(conn, origins, session, &tree)
+        .await
+        .into_iter()
+        .find(|f| f.frame_id == frame_id)
+        .ok_or_else(|| invalid("Frame not found; take a new snapshot and use a current id"))?;
+    let page_secrets = secret_backend_ids(conn, session).await?;
+    let owner = if frame.oopif {
+        let owner = conn.send("DOM.getFrameOwner", json!({ "frameId": frame.frame_id }), Some(session)).await?;
+        Some(owner.get("backendNodeId").and_then(Value::as_u64).ok_or_else(|| upstream(code::COMMAND_FAILED))?)
+    } else {
+        None
+    };
+    let (exec, nodes, secrets) = frame_ax(conn, session, &frame, &page_secrets).await?;
+    let (node, backend, secret) = pick_node(conn, nodes, &secrets, inner)?;
+    Ok(Target { exec, node, backend, secret, owner })
+}
+
+/// 元素中心在页面视口里的坐标（先滚到可见）。
+async fn target_center(conn: &mut CdpConnection, session: &str, target: &Target) -> Result<(f64, f64), McpToolError> {
+    conn.send("DOM.enable", json!({}), Some(session)).await?;
+    if let Some(owner) = target.owner {
+        let _ = conn.send("DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": owner }), Some(session)).await;
+        conn.send("DOM.enable", json!({}), Some(&target.exec)).await?;
+    }
+    let _ = conn
+        .send("DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": target.backend }), Some(&target.exec))
+        .await;
+    let model = conn
+        .send("DOM.getBoxModel", json!({ "backendNodeId": target.backend }), Some(&target.exec))
+        .await?;
+    let (mut x, mut y) = quad_center(&model).ok_or_else(|| invalid("Element is not visible"))?;
+    if let Some(owner) = target.owner {
+        let frame_box = conn.send("DOM.getBoxModel", json!({ "backendNodeId": owner }), Some(session)).await?;
+        let (ox, oy) = quad_origin(&frame_box).ok_or_else(|| invalid("Frame is not visible"))?;
+        x += ox;
+        y += oy;
+    }
+    Ok((x, y))
+}
+
+fn quad_origin(model: &Value) -> Option<(f64, f64)> {
+    let quad = model.get("model")?.get("content")?.as_array()?;
+    Some((quad.first()?.as_f64()?, quad.get(1)?.as_f64()?))
+}
+
+async fn mouse_click(conn: &mut CdpConnection, session: &str, x: f64, y: f64) -> Result<(), McpToolError> {
+    for (kind, extra) in [("mouseMoved", false), ("mousePressed", true), ("mouseReleased", true)] {
+        let mut params = json!({ "type": kind, "x": x, "y": y, "button": "none" });
+        if extra {
+            params["button"] = json!("left");
+            params["clickCount"] = json!(1);
+        }
+        conn.send("Input.dispatchMouseEvent", params, Some(session)).await?;
+        if kind == "mouseMoved" {
+            // 和真人一样，移到位置后稍停再按下
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        }
+    }
+    Ok(())
+}
+
+/// Fork 新增：按页面视口坐标（CSS 像素，和 mz_browser_screenshot 换算后的坐标一致）点击。
+pub async fn click_at(
+    conn: &mut CdpConnection,
+    origins: &[String],
+    page_id: &str,
+    x: f64,
+    y: f64,
+) -> Result<Value, McpToolError> {
+    if !x.is_finite() || !y.is_finite() || !(0.0..=20000.0).contains(&x) || !(0.0..=20000.0).contains(&y) {
+        return Err(invalid("x and y must be viewport coordinates in CSS pixels"));
+    }
+    let (page, session) = attach_authorized(conn, origins, page_id).await?;
+    bring_to_front(conn, &session).await;
+    mouse_click(conn, &session, x, y).await?;
+    current_state(conn, origins, &page.target_id).await
+}
+
+/// Fork 新增：当前可见区域截图（PNG，base64），附带视口尺寸，用于按坐标点击。
+pub async fn screenshot(
+    conn: &mut CdpConnection,
+    origins: &[String],
+    page_id: &str,
+) -> Result<Value, McpToolError> {
+    let (page, session) = attach_authorized(conn, origins, page_id).await?;
+    bring_to_front(conn, &session).await;
+    let metrics = conn.send("Page.getLayoutMetrics", json!({}), Some(&session)).await?;
+    let viewport = metrics.get("cssVisualViewport").cloned().unwrap_or(Value::Null);
+    let width = viewport.get("clientWidth").and_then(Value::as_f64).unwrap_or(0.0);
+    let height = viewport.get("clientHeight").and_then(Value::as_f64).unwrap_or(0.0);
+    let shot = conn
+        .send("Page.captureScreenshot", json!({ "format": "png", "fromSurface": true }), Some(&session))
+        .await?;
+    let data = shot.get("data").and_then(Value::as_str).ok_or_else(|| upstream(code::COMMAND_FAILED))?.to_string();
+    let (image_width, image_height) = png_size(&data).unwrap_or((0, 0));
+    let scale = if image_width > 0 && width > 0.0 { width / f64::from(image_width) } else { 1.0 };
+    let mut state = current_state(conn, origins, &page.target_id).await?;
+    state["image"] = json!(data);
+    state["imageWidth"] = json!(image_width);
+    state["imageHeight"] = json!(image_height);
+    state["viewportWidth"] = json!(width);
+    state["viewportHeight"] = json!(height);
+    // 图片像素坐标乘以 scale 就是 mz_browser_click_at 的坐标
+    state["scale"] = json!(scale);
+    Ok(state)
+}
+
+fn png_size(data: &str) -> Option<(u32, u32)> {
+    use base64::Engine;
+    // IHDR 在前 24 字节里，只解码开头一小段
+    let head = base64::engine::general_purpose::STANDARD.decode(data.get(..32)?).ok()?;
+    if head.len() < 24 || head[1..4] != *b"PNG" {
+        return None;
+    }
+    let w = u32::from_be_bytes(head[16..20].try_into().ok()?);
+    let h = u32::from_be_bytes(head[20..24].try_into().ok()?);
+    Some((w, h))
 }
 
 fn quad_center(model: &Value) -> Option<(f64, f64)> {
@@ -183,24 +337,10 @@ pub async fn click(
     node_id: &str,
 ) -> Result<Value, McpToolError> {
     let (page, session) = attach_authorized(conn, origins, page_id).await?;
-    let (_, backend, _) = find_node(conn, &session, node_id).await?;
+    let target = resolve(conn, origins, &session, node_id).await?;
     bring_to_front(conn, &session).await;
-    conn.send("DOM.enable", json!({}), Some(&session)).await?;
-    let _ = conn
-        .send("DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": backend }), Some(&session))
-        .await;
-    let model = conn
-        .send("DOM.getBoxModel", json!({ "backendNodeId": backend }), Some(&session))
-        .await?;
-    let (x, y) = quad_center(&model).ok_or_else(|| invalid("Element is not visible"))?;
-    for (kind, extra) in [("mouseMoved", false), ("mousePressed", true), ("mouseReleased", true)] {
-        let mut params = json!({ "type": kind, "x": x, "y": y, "button": "none" });
-        if extra {
-            params["button"] = json!("left");
-            params["clickCount"] = json!(1);
-        }
-        conn.send("Input.dispatchMouseEvent", params, Some(&session)).await?;
-    }
+    let (x, y) = target_center(conn, &session, &target).await?;
+    mouse_click(conn, &session, x, y).await?;
     current_state(conn, origins, &page.target_id).await
 }
 
@@ -254,13 +394,13 @@ pub async fn type_text(
         return Err(invalid("Text must be 1 to 2000 characters"));
     }
     let (page, session) = attach_authorized(conn, origins, page_id).await?;
-    let (node, backend, secret) = find_node(conn, &session, node_id).await?;
+    let Target { exec, node, backend, secret, .. } = resolve(conn, origins, &session, node_id).await?;
     if !node_is_editable(&node) {
         return Err(invalid("Element is not an editable field"));
     }
     bring_to_front(conn, &session).await;
-    conn.send("DOM.enable", json!({}), Some(&session)).await?;
-    conn.send("DOM.focus", json!({ "backendNodeId": backend }), Some(&session)).await?;
+    conn.send("DOM.enable", json!({}), Some(&exec)).await?;
+    conn.send("DOM.focus", json!({ "backendNodeId": backend }), Some(&exec)).await?;
     if clear {
         conn.send(
             "Input.dispatchKeyEvent",
@@ -292,7 +432,8 @@ pub async fn read_field(
         return Err(invalid("Full page access is disabled"));
     }
     let (page, session) = attach_authorized(conn, origins, page_id).await?;
-    let (node, backend, secret) = find_node(conn, &session, node_id).await?;
+    let Target { exec, node, backend, secret, .. } = resolve(conn, origins, &session, node_id).await?;
+    let session = exec;
     if !node_is_editable(&node) {
         return Err(invalid("Element is not an editable field"));
     }
