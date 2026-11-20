@@ -29,6 +29,7 @@ import {
   RotateCcw,
   BadgeCheck,
   Unlink,
+  KeyRound,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -421,6 +422,7 @@ function ActionsDropdown({
   onEditUrl,
   onEditTags,
   onEditCookies,
+  onPasskeys,
   onClearCache,
   onDelete,
   isDefaultBrowser,
@@ -442,6 +444,7 @@ function ActionsDropdown({
   onEditUrl: () => void;
   onEditTags: () => void;
   onEditCookies: () => void;
+  onPasskeys: () => void;
   onClearCache: () => void;
   onDelete: () => void;
 }) {
@@ -553,6 +556,12 @@ function ActionsDropdown({
         <DropdownMenuItem onClick={onEditCookies} className="cursor-pointer">
           <Cookie className="w-4 h-4 mr-2" />
           <span>{t('table.actions.editCookies')}</span>
+        </DropdownMenuItem>
+
+        {/* 通行密钥（本环境内核里创建的 passkey） */}
+        <DropdownMenuItem onClick={onPasskeys} className="cursor-pointer">
+          <KeyRound className="w-4 h-4 mr-2" />
+          <span>{t('table.actions.passkeys')}</span>
         </DropdownMenuItem>
 
         {/* 清除缓存 */}
@@ -1055,6 +1064,7 @@ export function EnvironmentTableRow({
               onEditUrl={handleEditUrl}
               onEditTags={handleEditTags}
               onEditCookies={handleEditCookies}
+              onPasskeys={() => dialogStore.openPasskeysDialog(environment)}
               onClearCache={handleClearCache}
               onDelete={handleDelete}
               isDefaultBrowser={isDefaultBrowser}

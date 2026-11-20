@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::app::context::AppContext;
@@ -186,11 +186,65 @@ impl MzRuntimeManager {
         Ok(from_embedded_message(dispatch.response))
     }
 
+    /// 内核上报的通行密钥新建 / 计数更新 / 删除：写数据库，再通知前端刷新列表（不含私钥）
+    async fn handle_passkey_changed(&self, payload: serde_json::Value) {
+        let Some(app_handle) = self.app_handle.read().await.clone() else {
+            return;
+        };
+        let env_uuid = payload
+            .get("env_uuid")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let Ok(uuid) = uuid::Uuid::parse_str(&env_uuid) else {
+            return;
+        };
+        let event = match serde_json::from_value::<business::services::passkeys::PasskeyKernelEvent>(
+            payload.get("event").cloned().unwrap_or_default(),
+        ) {
+            Ok(event) => event,
+            Err(error) => {
+                crate::log_warn!(
+                    crate::core::logger::modules::KERNEL,
+                    "环境 {} 的通行密钥事件无法解析: {}",
+                    env_uuid,
+                    error
+                );
+                return;
+            }
+        };
+        let Some(context) = app_handle.try_state::<business::svc_ctx::SvcCtx>() else {
+            return;
+        };
+        match business::services::passkeys::apply_kernel_event(&context, uuid, &event).await {
+            Ok(business::services::passkeys::PasskeyChange::Ignored) => {}
+            Ok(change) => {
+                let _ = app_handle.emit(
+                    "environment-passkeys-changed",
+                    serde_json::json!({ "env_uuid": env_uuid, "change": change }),
+                );
+            }
+            Err(error) => {
+                crate::log_warn!(
+                    crate::core::logger::modules::KERNEL,
+                    "保存环境 {} 的通行密钥失败: {}",
+                    env_uuid,
+                    error
+                );
+            }
+        }
+    }
+
     async fn runtime(&self) -> Option<Arc<ManagedRuntime>> {
         self.handle.lock().await.clone()
     }
 
     async fn handle_runtime_event(&self, name: String, payload: serde_json::Value) {
+        // 通行密钥变化带私钥：只在这里落盘，不转发给前端
+        if name == "environment.passkey_changed" {
+            self.handle_passkey_changed(payload).await;
+            return;
+        }
         if let Some(app_handle) = self.app_handle.read().await.clone() {
             let _ = app_handle.emit(&name, payload.clone());
 

@@ -822,6 +822,11 @@ pub async fn permanent_delete_environment(pool: &Pool<Db>, env_uuid: Uuid) -> Re
         .execute(pool)
         .await?;
 
+    sqlx::query("DELETE FROM environment_passkeys WHERE environment_uuid = $1")
+        .bind(env_uuid)
+        .execute(pool)
+        .await?;
+
     sqlx::query("DELETE FROM environment_configs WHERE environment_uuid = $1")
         .bind(env_uuid)
         .execute(pool)
@@ -858,6 +863,7 @@ pub async fn batch_permanent_delete_environments(
         "environment_tags",
         "environment_urls",
         "environment_cookies",
+        "environment_passkeys",
         "environment_configs",
         "environment_accounts",
     ] {

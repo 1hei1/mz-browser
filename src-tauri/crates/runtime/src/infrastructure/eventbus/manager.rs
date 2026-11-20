@@ -118,6 +118,10 @@ pub struct LaunchConfig {
     /// 视为代理丢失：断开所有网络，而不是回退直连。
     #[serde(default)]
     pub direct_connection: bool,
+    /// 每环境通行密钥。带上这个字段（可为空数组）内核才启用软件平台验证器替代 Windows Hello；
+    /// 旧内核忽略。Firefox 内核不发
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passkeys: Option<Vec<crate::services::environment::kernel::types::PasskeyConfig>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

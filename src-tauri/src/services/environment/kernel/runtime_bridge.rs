@@ -3,14 +3,14 @@ use std::path::PathBuf;
 use std::{fs, io::Write};
 
 use futures::future::try_join_all;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::app::context::AppContext;
 use crate::core::error::Result;
 use crate::domain::environment::{EnvironmentStatus, KernelEngine};
 use crate::infrastructure::runtime::{
     AccountConfig, CookieGroup, EnvironmentCommandRequest, EnvironmentCommandResponse,
-    EnvironmentStartRequest, FingerprintConfig, WindowBoundsRequest,
+    EnvironmentStartRequest, FingerprintConfig, PasskeyConfig, WindowBoundsRequest,
 };
 
 use super::extension;
@@ -459,6 +459,12 @@ async fn prepare_start_request(
         None => None,
     };
 
+    // 每环境通行密钥：Chromium 内核随启动配置下发（空列表也发，内核据此启用软件平台验证器）
+    let passkeys = match engine {
+        KernelEngine::Chromium => Some(load_passkeys(&app, &env_id).await),
+        KernelEngine::Gecko => None,
+    };
+
     let proxy = match proxy {
         Some(proxy) => Some(proxy.decrypt_password()?.to_browser_proxy_config()),
         None => None,
@@ -530,7 +536,43 @@ async fn prepare_start_request(
         engine,
         gecko,
         webrtc_udp_relay,
+        passkeys,
     })
+}
+
+/// 读出环境保存的通行密钥。读失败时不阻止启动：发空列表（新建的通行密钥照样会保存）
+async fn load_passkeys(app: &AppHandle, env_id: &str) -> Vec<PasskeyConfig> {
+    let Ok(env_uuid) = uuid::Uuid::parse_str(env_id) else {
+        return Vec::new();
+    };
+    let Some(context) = app.try_state::<business::svc_ctx::SvcCtx>() else {
+        return Vec::new();
+    };
+    match business::services::passkeys::launch_passkeys(&context, env_uuid).await {
+        Ok(items) => items
+            .into_iter()
+            .map(|item| PasskeyConfig {
+                credential_id: item.credential_id,
+                rp_id: item.rp_id,
+                user_handle: item.user_handle,
+                user_name: item.user_name,
+                user_display_name: item.user_display_name,
+                private_key: item.private_key,
+                sign_count: item.sign_count,
+                created_at: item.created_at,
+                discoverable: item.discoverable,
+            })
+            .collect(),
+        Err(error) => {
+            crate::log_warn!(
+                crate::core::logger::modules::KERNEL,
+                "读取环境 {} 的通行密钥失败: {}",
+                env_id,
+                error
+            );
+            Vec::new()
+        }
+    }
 }
 
 /// WebRTC 选“替换”且代理是 SOCKS5 时，内核把 WebRTC 的 UDP 经代理转发（--mz-webrtc-udp-relay）。

@@ -27,6 +27,7 @@ import { EnvironmentEditNameDialog } from './environment-edit-name-dialog';
 import { EnvironmentEditNoteDialog } from './environment-edit-note-dialog';
 import { EnvironmentEditUrlDialog } from './environment-edit-url-dialog';
 import { EnvironmentEditCookiesDialog } from './environment-edit-cookies-dialog';
+import { EnvironmentPasskeysDialog } from './environment-passkeys-dialog';
 import { EnvironmentClearCacheConfirmDialog } from './environment-clear-cache-confirm-dialog';
 import { useEnvironments } from '../hooks/use-environments';
 import {
@@ -232,6 +233,8 @@ export function EnvironmentList() {
       <EnvironmentEditUrlDialog onComplete={refresh} />
 
       <EnvironmentEditCookiesDialog onComplete={refresh} />
+
+      <EnvironmentPasskeysDialog />
 
       <EnvironmentClearCacheConfirmDialog onComplete={refresh} />
     </div>

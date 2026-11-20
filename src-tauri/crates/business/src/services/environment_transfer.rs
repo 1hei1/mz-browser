@@ -14,7 +14,7 @@ use crate::entitys::{
     CreateProxyRequest, EnvironmentConfigRequest, UrlInput,
 };
 use crate::models;
-use crate::services::{accounts, environments, groups, proxies, tags};
+use crate::services::{accounts, environments, groups, passkeys, proxies, tags};
 use crate::svc_ctx::SvcCtx;
 
 pub const FORMAT: &str = "mz-browser-environments";
@@ -54,6 +54,9 @@ pub struct PortableEnvironment {
     pub urls: Vec<UrlInput>,
     #[serde(default)]
     pub cookies: Vec<CookieGroupInput>,
+    /// 通行密钥（含私钥），和密码、Cookie 一样只在选择包含敏感信息时导出
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub passkeys: Vec<passkeys::PasskeyCredential>,
     pub config: EnvironmentConfigRequest,
 }
 
@@ -151,6 +154,11 @@ pub async fn export_environments_service(
             object.insert(KERNEL_NAME_KEY.to_string(), serde_json::Value::String(kernel.resource_name));
         }
         let secret = |value: Option<String>| if request.include_secrets { value } else { None };
+        let passkeys = if request.include_secrets {
+            passkeys::launch_passkeys(svc_ctx, *uuid).await?
+        } else {
+            Vec::new()
+        };
         exported.push(PortableEnvironment {
             source_uuid: *uuid,
             name: detail.environment.name,
@@ -194,6 +202,7 @@ pub async fn export_environments_service(
             } else {
                 Vec::new()
             },
+            passkeys,
             config: EnvironmentConfigRequest {
                 window_info,
                 basic_settings: config.basic_settings,
@@ -356,6 +365,9 @@ async fn import_all(
         let uuid = environments::create_environment_with(svc_ctx, &payload, Some(target), true)
             .await
             .map_err(failed)?;
+        for passkey in &environment.passkeys {
+            passkeys::upsert_passkey(svc_ctx, uuid, passkey).await.map_err(failed)?;
+        }
         imported.push(ImportedEnvironment { uuid, name, kept_identity });
     }
     Ok(imported)
@@ -765,6 +777,34 @@ mod tests {
         for secret in ["proxy-secret", "account-secret", "cookie-secret", "JBSWY3DPEHPK3PXP"] {
             assert!(!text.contains(secret), "{secret}");
         }
+    }
+
+    #[tokio::test]
+    async fn passkeys_travel_only_with_secrets() {
+        let ctx = test_ctx().await;
+        let uuid = source_environment(&ctx).await;
+        let passkey = passkeys::PasskeyCredential {
+            credential_id: "Y3JlZA".into(),
+            rp_id: "webauthn.io".into(),
+            user_handle: "dXNlcg".into(),
+            user_name: "alice".into(),
+            user_display_name: "Alice".into(),
+            private_key: "passkey-private-key".into(),
+            sign_count: 7,
+            created_at: 1_763_539_200_000,
+            discoverable: true,
+        };
+        passkeys::upsert_passkey(&ctx, uuid, &passkey).await.unwrap();
+
+        let without = export(&ctx, uuid, false).await;
+        assert!(without.environments[0].passkeys.is_empty());
+        assert!(!serde_json::to_string(&without).unwrap().contains("passkey-private-key"));
+
+        let bundle = export(&ctx, uuid, true).await;
+        assert_eq!(bundle.environments[0].passkeys, vec![passkey.clone()]);
+        models::permanent_delete_environment(&ctx.db, uuid).await.unwrap();
+        import(&ctx, &bundle).await.unwrap();
+        assert_eq!(passkeys::launch_passkeys(&ctx, uuid).await.unwrap(), vec![passkey]);
     }
 
     #[tokio::test]

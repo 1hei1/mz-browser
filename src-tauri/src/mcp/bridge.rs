@@ -579,6 +579,18 @@ impl LocalApiBridge {
         Ok(())
     }
 
+    /// 环境的通行密钥列表（业务层只返回元数据，不含私钥）
+    pub async fn list_environment_passkeys(
+        &self,
+        env_uuid: &str,
+    ) -> Result<Vec<business::services::passkeys::EnvironmentPasskeyDto>, McpToolError> {
+        self.dispatch_business(
+            "environments/passkeys/list",
+            &json!({ "uuid": env_uuid }),
+        )
+        .await
+    }
+
     /// Runs a business route and returns its raw JSON (used by the RPA tools).
     pub async fn dispatch_value(
         &self,

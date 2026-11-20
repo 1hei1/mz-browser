@@ -30,3 +30,4 @@ export { EnvironmentEditNameDialog } from './environment-edit-name-dialog';
 export { EnvironmentEditNoteDialog } from './environment-edit-note-dialog';
 export { EnvironmentEditUrlDialog } from './environment-edit-url-dialog';
 export { EnvironmentEditCookiesDialog } from './environment-edit-cookies-dialog';
+export { EnvironmentPasskeysDialog } from './environment-passkeys-dialog';

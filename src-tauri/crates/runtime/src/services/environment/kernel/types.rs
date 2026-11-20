@@ -40,6 +40,29 @@ pub struct EnvironmentStartRequest {
     /// WebRTC UDP 经 SOCKS5 转发（应用启动前已确认代理支持 UDP），加 --mz-webrtc-udp-relay
     #[serde(default)]
     pub webrtc_udp_relay: bool,
+    /// 每环境通行密钥（含私钥明文，只经本机管道发给内核）。None = 不启用
+    #[serde(default)]
+    pub passkeys: Option<Vec<PasskeyConfig>>,
+}
+
+/// 一条通行密钥，字段和内核 LaunchConfig.passkeys 一致（二进制字段为无填充 base64url）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PasskeyConfig {
+    pub credential_id: String,
+    pub rp_id: String,
+    #[serde(default)]
+    pub user_handle: String,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub user_display_name: String,
+    pub private_key: String,
+    #[serde(default)]
+    pub sign_count: u32,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub discoverable: bool,
 }
 
 /// 内核的浏览器引擎；和应用侧 `domain::environment::KernelEngine` 的序列化一致

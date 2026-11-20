@@ -618,6 +618,27 @@ pub async fn dispatch_post(
             }
             .await
         }
+        "environments/passkeys/list" => {
+            async {
+                let request: UuidRequest = payload(data)?;
+                value(
+                    services::passkeys::list_environment_passkeys_service(context, request.uuid)
+                        .await?,
+                )
+            }
+            .await
+        }
+        "environments/passkeys/delete" => {
+            async {
+                let id = data
+                    .get("id")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| "Invalid request payload: missing id".to_string())?;
+                services::passkeys::delete_environment_passkey_service(context, id).await?;
+                Ok(Value::Null)
+            }
+            .await
+        }
         "environments/cookies/clear" => {
             async {
                 let request: ClearEnvironmentCookiesRequest = payload(data)?;

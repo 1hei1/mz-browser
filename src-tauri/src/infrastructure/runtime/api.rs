@@ -206,6 +206,29 @@ pub struct EnvironmentStartRequest {
     /// WebRTC UDP 经 SOCKS5 转发（启动前已确认代理支持 UDP）
     #[serde(default)]
     pub webrtc_udp_relay: bool,
+    /// 每环境通行密钥（含私钥明文，只经本机管道发给内核）。None = 不启用（Firefox 内核）
+    #[serde(default)]
+    pub passkeys: Option<Vec<PasskeyConfig>>,
+}
+
+/// 一条通行密钥，和运行时 / 内核 LaunchConfig.passkeys 的字段一致（二进制字段为无填充 base64url）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PasskeyConfig {
+    pub credential_id: String,
+    pub rp_id: String,
+    #[serde(default)]
+    pub user_handle: String,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub user_display_name: String,
+    pub private_key: String,
+    #[serde(default)]
+    pub sign_count: u32,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub discoverable: bool,
 }
 
 /// Firefox（Camoufox）内核的启动数据：`config` 进 `CAMOU_CONFIG`，`prefs` 进 `CAMOU_PREFS`。
