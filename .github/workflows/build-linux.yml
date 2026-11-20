@@ -76,6 +76,8 @@ jobs:
           node -e "
             const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));
             c.bundle.targets=['deb'];
+            // deb 的 Package 字段取 productName，中文名 dpkg 不认，Linux 包统一叫 mz-browser
+            c.productName='mz-browser';c.mainBinaryName='mz-browser';
             c.plugins.updater.endpoints=['https://github.com/'+process.env.REPOSITORY+'/releases/latest/download/latest.json'];
             if (process.env.TAURI_UPDATER_PUBLIC_KEY) c.plugins.updater.pubkey=process.env.TAURI_UPDATER_PUBLIC_KEY.trim();
             c.bundle.linux=Object.assign({},c.bundle.linux,{deb:{depends:['xvfb','xauth','libnss3','libgbm1','libasound2 | libasound2t64','fonts-liberation']}});

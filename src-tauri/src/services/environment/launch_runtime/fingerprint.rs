@@ -37,7 +37,7 @@ const SERVER_WEBGL_VENDOR: &str = "Google Inc. (Intel)";
 const SERVER_WEBGL_RENDERER: &str = "ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL 4.6)";
 
 fn build_fingerprint_config_inner(config: Option<&Value>) -> FingerprintConfig {
-    let window_info = get_window_info(config);
+    let window_info = with_host_identity(get_window_info(config));
     let basic_settings = get_object(config, "basic_settings");
     let fingerprint_settings = get_object(config, "fingerprint_settings");
     let device_settings = get_object(config, "device_settings");
@@ -211,6 +211,47 @@ const DEFAULT_LINUX_PLATFORM_VERSION: &str = "6.8.0";
 
 /// 环境存的版本号都按 Windows 生成。macOS / Linux 身份不能用它，也不能不发：
 /// 不发时内核会报宿主机的 Windows 版本，和身份矛盾。
+/// Fork 新增：MCP / 本地 API 建的环境可能只有名字，没有 window_info.userAgent，
+/// 内核会以"缺少 User-Agent"拒绝启动。这时按本机系统补一个标准的 Chrome UA
+/// （主版本号启动时再对齐内核，见 launch_runtime/mod.rs），system 没填也一起补。
+fn with_host_identity(mut window_info: serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
+    let has_ua = window_info.get("userAgent").and_then(Value::as_str).is_some_and(|ua| !ua.trim().is_empty());
+    if has_ua {
+        return window_info;
+    }
+    let system = window_info
+        .get("system")
+        .and_then(Value::as_str)
+        .filter(|system| !system.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| host_system().to_string());
+    let platform = match system.as_str() {
+        "macOS" => "Macintosh; Intel Mac OS X 10_15_7",
+        "Linux" => "X11; Linux x86_64",
+        _ => "Windows NT 10.0; Win64; x64",
+    };
+    window_info.insert(
+        "userAgent".into(),
+        Value::String(format!(
+            "Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{DEFAULT_UA_MAJOR}.0.0.0 Safari/537.36"
+        )),
+    );
+    window_info.insert("system".into(), Value::String(system));
+    window_info
+}
+
+const DEFAULT_UA_MAJOR: u32 = 158;
+
+fn host_system() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "Linux"
+    } else if cfg!(target_os = "macos") {
+        "macOS"
+    } else {
+        "Windows"
+    }
+}
+
 fn platform_version_for(window_info: &serde_json::Map<String, Value>) -> Option<String> {
     let stored = get_string_from_map(window_info, "platformVersion").filter(|version| !version.trim().is_empty());
     let own_or = |default: &str| {
@@ -364,5 +405,30 @@ mod device_id_tests {
         assert_eq!(normalize_gpu_name("NVIDIA GeForce RTX 3060"), "geforcertx3060");
         assert_eq!(normalize_gpu_name("Intel(R) UHD Graphics 630"), "uhdgraphics630");
         assert_eq!(normalize_gpu_name("AMD Radeon RX 580 Series"), "radeonrx580");
+    }
+}
+
+#[cfg(test)]
+mod host_identity_tests {
+    use super::*;
+
+    #[test]
+    fn missing_user_agent_gets_a_host_default() {
+        let info = with_host_identity(serde_json::Map::new());
+        let ua = info.get("userAgent").and_then(Value::as_str).unwrap();
+        assert!(ua.contains("Chrome/158.0.0.0"));
+        assert_eq!(info.get("system").and_then(Value::as_str), Some(host_system()));
+    }
+
+    #[test]
+    fn declared_system_decides_the_platform_and_own_ua_is_kept() {
+        let mut map = serde_json::Map::new();
+        map.insert("system".into(), Value::String("Linux".into()));
+        let info = with_host_identity(map);
+        assert!(info.get("userAgent").and_then(Value::as_str).unwrap().contains("(X11; Linux x86_64)"));
+
+        let mut own = serde_json::Map::new();
+        own.insert("userAgent".into(), Value::String("custom".into()));
+        assert_eq!(with_host_identity(own).get("userAgent").and_then(Value::as_str), Some("custom"));
     }
 }
